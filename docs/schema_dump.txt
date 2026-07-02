@@ -1,0 +1,52 @@
+Table projects schema:
+CREATE TABLE `projects` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(200) NOT NULL,
+  `description` text DEFAULT NULL,
+  `status` enum('Planning','In Progress','On Hold','Completed','Cancelled') DEFAULT 'Planning',
+  `priority` enum('Low','Medium','High','Urgent') DEFAULT 'Medium',
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `created_by` int(11) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `project_type` enum('Documented - ICT','Document Submission','Generic Reminders') DEFAULT 'Generic Reminders',
+  `require_document_submission` tinyint(1) NOT NULL DEFAULT 0,
+  `require_procedure_tracking` tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_created_by` (`created_by`),
+  CONSTRAINT `projects_ibfk_1` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+
+Table tasks schema:
+CREATE TABLE `tasks` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `project_id` int(11) NOT NULL,
+  `name` varchar(200) NOT NULL,
+  `description` text DEFAULT NULL,
+  `status` enum('Not Started','In Progress','In Review','Completed','Cancelled') DEFAULT 'Not Started',
+  `priority` enum('Low','Medium','High','Urgent') DEFAULT 'Medium',
+  `assigned_to` int(11) DEFAULT NULL,
+  `created_by` int(11) NOT NULL,
+  `due_date` date DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `created_by` (`created_by`),
+  KEY `idx_project_id` (`project_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_assigned_to` (`assigned_to`),
+  KEY `idx_due_date` (`due_date`),
+  CONSTRAINT `tasks_ibfk_1` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tasks_ibfk_2` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tasks_ibfk_3` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=14 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+
+Table task_comments does not exist.
+
+Table project_comments does not exist.
+
+Table documents does not exist.
+

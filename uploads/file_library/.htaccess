@@ -1,0 +1,16 @@
+# File library: static assets only — aligns with root /.htaccess routing and uploads/.htaccess execution policy.
+# See root .htaccess (rewrite rules) and uploads/.htaccess (blocked interpreters).
+
+Options -Indexes -ExecCGI
+
+<FilesMatch "\.(php|php[0-9]?|phtml|phar|cgi|pl|asp|aspx|jsp|sh|env|ini|log|bak|sql|swp)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+</IfModule>

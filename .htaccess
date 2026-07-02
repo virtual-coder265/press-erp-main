@@ -1,0 +1,95 @@
+# Government Press ERP - Security & URL Routing
+
+# 1. Basic Security
+Options -Indexes
+ServerSignature Off
+
+# 2. Prevent Access to Sensitive Files
+<FilesMatch "^\.env">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<FilesMatch "\.(sql|log|ini|sh|bak|swp)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block direct web access to dependency trees, cron scripts, and logs
+<IfModule mod_rewrite.c>
+    RewriteRule ^(?:vendor|node_modules|cron|logs|cli-tools)(?:/|$) - [F,L]
+    RewriteRule ^modules/estimations/USAGE_EXAMPLES(?:\.php)?$ - [F,L]
+</IfModule>
+
+# 3. URL Rewriting - Hide .php extension
+RewriteEngine On
+
+# For local development (e.g. localhost/press-erp-main/):
+RewriteBase /press-erp-main/
+
+# FOR PRODUCTION on press.xlabmw.com (if serving from the domain root), uncomment below and comment the line above:
+# RewriteBase /
+
+# Redirect external .php requests to extensionless URLs
+RewriteCond %{THE_REQUEST} ^[A-Z]{3,9}\ /([^\ ]+)\.php([^\ ]*)\ HTTP
+RewriteRule ^(.+)\.php$ $1 [R=301,L,NE]
+
+# Forms, fetch(), and XHR must use extensionless script URLs when posting: external
+# requests to *.php get a 301 to the clean path; clients often retry as GET, so POST
+# bodies never reach PHP.
+
+# Internal mapping for clean URLs
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^(.*)$ $1.php [L,QSA]
+
+# 4. Compression and Static Asset Caching
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/plain text/html text/xml text/css text/javascript
+    AddOutputFilterByType DEFLATE application/javascript application/x-javascript application/json application/xml
+    AddOutputFilterByType DEFLATE image/svg+xml font/ttf font/otf application/font-woff application/font-woff2
+</IfModule>
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/html "access plus 0 seconds"
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType text/javascript "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType application/x-javascript "access plus 1 month"
+    ExpiresByType application/json "access plus 0 seconds"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType image/x-icon "access plus 1 month"
+    ExpiresByType image/avif "access plus 1 month"
+    ExpiresByType image/webp "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType font/ttf "access plus 1 month"
+    ExpiresByType font/otf "access plus 1 month"
+    ExpiresByType font/woff "access plus 1 month"
+    ExpiresByType font/woff2 "access plus 1 month"
+    ExpiresByType audio/mpeg "access plus 1 month"
+    ExpiresByType audio/wav "access plus 1 month"
+</IfModule>
+
+# 5. Security Headers
+<IfModule mod_headers.c>
+    Header set X-XSS-Protection "1; mode=block"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-Content-Type-Options "nosniff"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header append Vary "Accept-Encoding"
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+</IfModule>
+
+# 6. Uploaded assets and file hub storage (uploads/.htaccess, uploads/file_library/.htaccess)
+# Extensionless routing above applies to app PHP entry points such as modules/files/index.
+# Files under uploads/ are delivered as static content; nested .htaccess rules deny
+# script execution there, consistent with the file management module policy.

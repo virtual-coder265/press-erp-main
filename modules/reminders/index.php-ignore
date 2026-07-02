@@ -1,0 +1,1254 @@
+<?php
+require_once __DIR__ . '/../../config/app.php';
+checkAuth();
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/reminder_helper.php';
+
+$userId = (int) ($_SESSION['user_id'] ?? 0);
+$view = trim((string) ($_GET['view'] ?? 'active'));
+$sourceFilter = trim((string) ($_GET['source'] ?? 'all'));
+$search = trim((string) ($_GET['search'] ?? ''));
+$editReminderId = (int) ($_GET['edit'] ?? 0);
+
+$hub = trim((string) ($_GET['hub'] ?? 'board'));
+if (!in_array($hub, ['board', 'calendar'], true)) {
+    $hub = 'board';
+}
+
+$calMonth = trim((string) ($_GET['cal_month'] ?? ''));
+if (!preg_match('/^\d{4}-\d{2}$/', $calMonth)) {
+    $calMonth = date('Y-m');
+}
+$calendarStart = $calMonth . '-01';
+$calendarEnd = date('Y-m-t', strtotime($calendarStart));
+$calDayRaw = trim((string) ($_GET['cal_day'] ?? ''));
+$todayYmd = date('Y-m-d');
+$selectedDay = $calDayRaw;
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $selectedDay)) {
+    $selectedDay = ($todayYmd >= $calendarStart && $todayYmd <= $calendarEnd) ? $todayYmd : $calendarStart;
+} elseif ($selectedDay < $calendarStart || $selectedDay > $calendarEnd) {
+    $selectedDay = max($calendarStart, min($selectedDay, $calendarEnd));
+}
+
+if (!in_array($view, ['active', 'all', 'completed', 'dismissed'], true)) {
+    $view = 'active';
+}
+
+if (!in_array($sourceFilter, ['all', 'self', 'task_assignment'], true)) {
+    $sourceFilter = 'all';
+}
+
+$moduleReady = reminder_module_ready($pdo, true);
+$stats = [
+    'active' => 0,
+    'due_today' => 0,
+    'overdue' => 0,
+    'task_linked' => 0,
+    'personal' => 0,
+    'completed' => 0,
+    'dismissed' => 0,
+];
+$reminders = [];
+$taskLinkedCards = [];
+$personalCards = [];
+$spotlightCards = [];
+$resolvedCards = [];
+$editReminder = null;
+$editReminderRemindAtValue = '';
+$editReminderAlarmEnabled = 1;
+$editReminderAlarmOffsetMinutes = 30;
+$alarmOffsetOptions = reminder_alarm_offset_options();
+
+$calendarRows = [];
+$calendarByDay = [];
+$weekByDay = [];
+$weekStart = date('Y-m-d', strtotime('monday this week'));
+$weekEnd = date('Y-m-d', strtotime('sunday this week'));
+$upcomingAlarms = [];
+$alarmActiveCount = 0;
+
+if ($moduleReady) {
+    backfill_task_assignment_reminders_for_user($pdo, $userId);
+    $stats = fetch_reminder_counts_for_user($pdo, $userId);
+    $reminders = fetch_reminders_for_user($pdo, $userId, [
+        'status' => $view,
+        'source' => $sourceFilter,
+        'search' => $search,
+        'limit' => $view === 'all' ? 120 : 80,
+    ]);
+
+    foreach ($reminders as $reminder) {
+        if (($reminder['status'] ?? 'active') === 'active' && in_array(($reminder['due_meta']['tone'] ?? ''), ['danger', 'warning'], true)) {
+            $spotlightCards[] = $reminder;
+        }
+
+        if (($reminder['source'] ?? 'self') === 'task_assignment') {
+            $taskLinkedCards[] = $reminder;
+        } else {
+            $personalCards[] = $reminder;
+        }
+
+        if (($reminder['status'] ?? 'active') !== 'active') {
+            $resolvedCards[] = $reminder;
+        }
+    }
+
+    if ($editReminderId > 0) {
+        $editReminder = fetch_personal_reminder($pdo, $userId, $editReminderId);
+        if ($editReminder) {
+            $editReminderFallbackDatetime = !empty($editReminder['remind_at'])
+                ? $editReminder['remind_at']
+                : (!empty($editReminder['due_on']) ? ($editReminder['due_on'] . ' 09:00:00') : null);
+            $editReminderRemindAtValue = format_reminder_datetime_local($editReminderFallbackDatetime);
+            $editReminderAlarmEnabled = isset($editReminder['alarm_enabled']) ? (int) $editReminder['alarm_enabled'] : 1;
+            $editReminderAlarmOffsetMinutes = isset($editReminder['alarm_offset_minutes'])
+                ? (int) $editReminder['alarm_offset_minutes']
+                : 30;
+        }
+    }
+
+    if ($hub === 'calendar') {
+        $calendarRows = fetch_reminders_for_calendar_range($pdo, $userId, $calendarStart, $calendarEnd, [
+            'status' => 'active',
+            'source' => $sourceFilter,
+            'search' => $search,
+        ]);
+        $calendarByDay = group_reminders_by_calendar_day($calendarRows);
+
+        $weekRows = fetch_reminders_for_calendar_range($pdo, $userId, $weekStart, $weekEnd, [
+            'status' => 'active',
+            'source' => $sourceFilter,
+            'search' => $search,
+        ]);
+        $weekByDay = group_reminders_by_calendar_day($weekRows);
+
+        $upcomingAlarms = fetch_upcoming_alarm_schedule($pdo, $userId, 20);
+        $alarmActiveCount = count_scheduled_active_alarms($pdo, $userId);
+    }
+}
+
+$success = trim((string) ($_GET['success'] ?? ''));
+$error = trim((string) ($_GET['error'] ?? ''));
+$redirectQuery = http_build_query(array_filter([
+    'hub' => $hub !== 'board' ? $hub : null,
+    'cal_month' => $hub === 'calendar' ? $calMonth : null,
+    'cal_day' => $hub === 'calendar' ? $selectedDay : null,
+    'view' => $view !== 'active' ? $view : null,
+    'source' => $sourceFilter !== 'all' ? $sourceFilter : null,
+    'search' => $search !== '' ? $search : null,
+]));
+$redirectTarget = 'modules/reminders/index' . ($redirectQuery !== '' ? '?' . $redirectQuery : '');
+
+include '../../includes/header.php';
+?>
+
+<style>
+    :root {
+        --rh-primary: #6d4aff;
+        --rh-primary-strong: #5835f5;
+        --rh-primary-soft: rgba(109, 74, 255, 0.14);
+        --rh-secondary: #9f7aea;
+        --rh-accent: #3f63ff;
+        --rh-text: #1f2433;
+        --rh-text-soft: #63708a;
+        --rh-border: rgba(213, 219, 238, 0.92);
+        --rh-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 247, 255, 0.97));
+        --rh-shadow: 0 30px 58px -42px rgba(44, 53, 92, 0.38);
+    }
+
+    .reminder-shell {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        width: 100%;
+        max-width: 1520px;
+        margin: 0 auto;
+    }
+
+    .reminder-hero,
+    .reminder-panel,
+    .reminder-card,
+    .reminder-empty {
+        position: relative;
+        overflow: hidden;
+        border-radius: 1.75rem;
+        border: 1px solid var(--rh-border);
+        background: var(--rh-panel-bg);
+        box-shadow: var(--rh-shadow);
+    }
+
+    .reminder-hero,
+    .reminder-panel,
+    .reminder-empty {
+        padding: 1.45rem;
+    }
+
+    .reminder-hero {
+        background:
+            radial-gradient(circle at top right, rgba(109, 74, 255, 0.16), transparent 30%),
+            radial-gradient(circle at bottom left, rgba(159, 122, 234, 0.14), transparent 28%),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 244, 255, 0.98));
+    }
+
+    .reminder-hero-grid,
+    .reminder-overview-grid,
+    .reminder-board-grid,
+    .reminder-form-grid,
+    .reminder-filter-grid {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .reminder-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.82rem;
+        border-radius: 999px;
+        background: var(--rh-primary-soft);
+        color: var(--rh-primary-strong);
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .reminder-title {
+        margin-top: 1rem;
+        font-size: clamp(1rem, 2vw, 1.5rem);
+        line-height: 0.98;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        color: var(--rh-text);
+    }
+
+    .reminder-subtitle {
+        margin-top: 0.9rem;
+        max-width: 42rem;
+        color: var(--rh-text-soft);
+        font-size: 0.96rem;
+        line-height: 1.6;
+    }
+
+    .reminder-flow-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin-top: 1rem;
+    }
+
+    .reminder-flow-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.42rem 0.8rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.85);
+        border: 1px solid var(--rh-border);
+        font-size: 0.74rem;
+        font-weight: 700;
+        color: #505f7a;
+    }
+
+    .reminder-hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1.25rem;
+    }
+
+    .reminder-primary-link,
+    .reminder-secondary-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.8rem 1rem;
+        border-radius: 999px;
+        font-size: 0.84rem;
+        font-weight: 700;
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .reminder-primary-link {
+        background: linear-gradient(135deg, var(--rh-primary) 0%, var(--rh-primary-strong) 100%);
+        color: #fff;
+        box-shadow: 0 18px 35px -24px rgba(109, 74, 255, 0.6);
+    }
+
+    .reminder-secondary-link {
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        color: #58637d;
+        background: rgba(255, 255, 255, 0.85);
+    }
+
+    .reminder-primary-link:hover,
+    .reminder-secondary-link:hover {
+        transform: translateY(-1px);
+    }
+
+    .reminder-stat-card {
+        padding: 1rem;
+        border-radius: 1.2rem;
+        background: rgba(255, 255, 255, 0.87);
+        border: 1px solid var(--rh-border);
+    }
+
+    .reminder-stat-card span {
+        display: block;
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: #8b95ad;
+    }
+
+    .reminder-stat-card strong {
+        display: block;
+        margin-top: 0.45rem;
+        font-size: 1.8rem;
+        line-height: 1;
+        color: var(--rh-text);
+    }
+
+    .reminder-panel-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.8rem;
+        margin-bottom: 1rem;
+    }
+
+    .reminder-panel-kicker {
+        display: block;
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: #8998b1;
+    }
+
+    .reminder-panel-title {
+        margin-top: 0.3rem;
+        font-size: 1.25rem;
+        font-weight: 800;
+        color: var(--rh-text);
+    }
+
+    .reminder-panel-copy {
+        margin-top: 0.3rem;
+        font-size: 0.9rem;
+        color: var(--rh-text-soft);
+    }
+
+    .reminder-filter-grid {
+        align-items: end;
+    }
+
+    .reminder-filter-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.7rem;
+    }
+
+    .reminder-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.7rem 0.9rem;
+        border-radius: 999px;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        background: #fff;
+        color: #475569;
+        font-size: 0.84rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .reminder-pill.is-active {
+        border-color: rgba(109, 74, 255, 0.24);
+        background: var(--rh-primary-soft);
+        color: var(--rh-primary-strong);
+    }
+
+    .reminder-pill-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.5rem;
+        padding: 0.12rem 0.42rem;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.18);
+        color: inherit;
+        font-size: 0.72rem;
+        font-weight: 800;
+        line-height: 1;
+    }
+
+    .reminder-input,
+    .reminder-textarea,
+    .reminder-select {
+        width: 100%;
+        padding: 0.88rem 1rem;
+        border-radius: 1rem;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        background: rgba(255, 255, 255, 0.96);
+        color: var(--rh-text);
+    }
+
+    .reminder-input:focus,
+    .reminder-textarea:focus,
+    .reminder-select:focus {
+        outline: none;
+        border-color: rgba(109, 74, 255, 0.5);
+        box-shadow: 0 0 0 4px rgba(109, 74, 255, 0.14);
+    }
+
+    .reminder-label {
+        display: block;
+        margin-bottom: 0.45rem;
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #63718e;
+    }
+
+    .reminder-option-card,
+    .reminder-alarm-config {
+        border-radius: 1rem;
+        border: 1px solid rgba(203, 213, 225, 0.9);
+        background: rgba(248, 250, 252, 0.94);
+        padding: 0.95rem 1rem;
+    }
+
+    .reminder-option-card {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .reminder-alarm-config {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+    }
+
+    .reminder-card {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1.2rem;
+    }
+
+    .reminder-card::before {
+        content: '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 5px;
+        background: var(--rh-primary);
+    }
+
+    .reminder-card.is-task::before {
+        background: var(--rh-accent);
+    }
+
+    .reminder-card.is-overdue::before {
+        background: #f43f5e;
+    }
+
+    .reminder-card.is-completed::before {
+        background: #10b981;
+    }
+
+    .reminder-card.is-dismissed::before {
+        background: #94a3b8;
+    }
+
+    .reminder-card-head,
+    .reminder-card-actions,
+    .reminder-card-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.6rem;
+    }
+
+    .reminder-card-head {
+        justify-content: space-between;
+        align-items: flex-start;
+    }
+
+    .reminder-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.4rem 0.7rem;
+        border-radius: 999px;
+        font-size: 0.74rem;
+        font-weight: 800;
+    }
+
+    .reminder-chip-source-self {
+        background: rgba(109, 74, 255, 0.14);
+        color: #5a3ff6;
+    }
+
+    .reminder-chip-source-task {
+        background: rgba(63, 99, 255, 0.14);
+        color: #3050cf;
+    }
+
+    .reminder-card-title {
+        font-size: 1.06rem;
+        line-height: 1.35;
+        font-weight: 800;
+        color: var(--rh-text);
+    }
+
+    .reminder-card-note {
+        color: var(--rh-text-soft);
+        font-size: 0.92rem;
+        line-height: 1.7;
+        min-height: 3.1rem;
+    }
+
+    .reminder-card-meta-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.5rem 0.7rem;
+        border-radius: 999px;
+        background: rgba(248, 250, 252, 0.96);
+        color: #53607c;
+        font-size: 0.8rem;
+        font-weight: 700;
+    }
+
+    .reminder-card-alarm {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.9rem;
+        padding: 0.95rem 1rem;
+        border-radius: 1rem;
+        border: 1px solid rgba(226, 232, 240, 0.95);
+        background: rgba(245, 244, 255, 0.9);
+    }
+
+    .reminder-card-alarm-title {
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--rh-text-soft);
+    }
+
+    .reminder-card-alarm-note {
+        margin-top: 0.35rem;
+        font-size: 0.82rem;
+        line-height: 1.55;
+        color: var(--rh-text-soft);
+    }
+
+    .reminder-card-alarm-form {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.65rem;
+    }
+
+    .reminder-card-alarm-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.55rem 0.75rem;
+        border-radius: 999px;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        background: #fff;
+        color: #58627d;
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+
+    .reminder-card-alarm-select {
+        min-width: 185px;
+        padding: 0.72rem 0.9rem;
+        border-radius: 999px;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        background: #fff;
+        color: var(--rh-text);
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+
+    .reminder-card-alarm-select:focus {
+        outline: none;
+        border-color: rgba(109, 74, 255, 0.5);
+        box-shadow: 0 0 0 4px rgba(109, 74, 255, 0.14);
+    }
+
+    .reminder-card-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.72rem 0.9rem;
+        border-radius: 999px;
+        border: 1px solid rgba(203, 213, 225, 0.94);
+        background: #fff;
+        color: #58627d;
+        font-size: 0.78rem;
+        font-weight: 800;
+        transition: transform 0.18s ease, border-color 0.18s ease;
+    }
+
+    .reminder-card-action:hover {
+        transform: translateY(-1px);
+        border-color: rgba(109, 74, 255, 0.35);
+    }
+
+    .reminder-card-action.is-primary {
+        background: linear-gradient(135deg, var(--rh-primary) 0%, var(--rh-secondary) 100%);
+        border-color: transparent;
+        color: #fff;
+    }
+
+    .reminder-card-action.is-danger {
+        color: #be123c;
+        border-color: rgba(244, 63, 94, 0.25);
+        background: rgba(255, 241, 242, 0.9);
+    }
+
+    .reminder-card-status {
+        font-size: 0.78rem;
+        color: #8591a8;
+    }
+
+    .reminder-empty {
+        text-align: center;
+        color: #6d7691;
+    }
+
+    .reminder-empty i {
+        font-size: 2.7rem;
+        color: #a0a9be;
+        display: block;
+        margin-bottom: 0.9rem;
+    }
+
+    @media (min-width: 900px) {
+        .reminder-hero-grid {
+            grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+            align-items: stretch;
+        }
+
+        .reminder-overview-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .reminder-board-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .reminder-form-grid {
+            grid-template-columns: minmax(0, 1.05fr) minmax(220px, 0.45fr);
+        }
+
+        .reminder-filter-grid {
+            grid-template-columns: minmax(0, 1fr) minmax(260px, 0.35fr);
+        }
+
+    }
+
+    @media (min-width: 1200px) {
+        .reminder-shell {
+            gap: 1.8rem;
+        }
+
+        .reminder-hero,
+        .reminder-panel,
+        .reminder-empty {
+            padding: 1.7rem;
+        }
+
+        .reminder-hero-grid {
+            grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.75fr);
+            gap: 1.25rem;
+        }
+
+        .reminder-overview-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.85rem;
+        }
+
+        .reminder-form-grid {
+            grid-template-columns: minmax(0, 1.2fr) minmax(290px, 0.55fr);
+            gap: 1.1rem;
+        }
+
+        .reminder-filter-grid {
+            grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.55fr);
+            gap: 1.1rem;
+        }
+
+        .reminder-board-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 1.05rem;
+        }
+
+        .reminder-card {
+            min-height: 100%;
+        }
+
+        .reminder-card-note {
+            min-height: 3.6rem;
+        }
+    }
+
+    @media (min-width: 1500px) {
+        .reminder-shell {
+            max-width: 1660px;
+        }
+
+        .reminder-board-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 1.1rem;
+        }
+
+        .reminder-hero-grid {
+            grid-template-columns: minmax(0, 1.55fr) minmax(390px, 0.7fr);
+        }
+    }
+
+    .rh-hub-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .rh-hub-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.65rem 1.1rem;
+        border-radius: 999px;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        background: rgba(255, 255, 255, 0.9);
+        color: #475569;
+        font-size: 0.84rem;
+        font-weight: 800;
+        text-decoration: none;
+        transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .rh-hub-tab:hover {
+        border-color: rgba(109, 74, 255, 0.35);
+        color: var(--rh-primary-strong);
+    }
+
+    .rh-hub-tab.is-active {
+        border-color: rgba(109, 74, 255, 0.45);
+        background: var(--rh-primary-soft);
+        color: var(--rh-primary-strong);
+    }
+
+    .rh-quick-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        margin-top: -0.1rem;
+    }
+
+    .rh-quick-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.62rem 0.95rem;
+        border-radius: 999px;
+        border: 1px solid rgba(213, 219, 238, 0.95);
+        background: rgba(255, 255, 255, 0.9);
+        color: #5a6883;
+        font-size: 0.8rem;
+        font-weight: 800;
+        text-decoration: none;
+        transition: transform 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+    }
+
+    .rh-quick-link:hover {
+        transform: translateY(-1px);
+        border-color: rgba(109, 74, 255, 0.35);
+        color: var(--rh-primary-strong);
+    }
+
+    .rh-quick-link.is-primary {
+        border-color: rgba(109, 74, 255, 0.35);
+        background: rgba(109, 74, 255, 0.1);
+        color: var(--rh-primary-strong);
+    }
+</style>
+
+<div class="workspace-stack">
+    <div class="reminder-shell">
+        <section class="reminder-hero">
+            <div class="reminder-hero-grid">
+                <div class="min-w-0">
+                    <a href="<?php echo BASE_URL; ?>modules/dashboard/index" class="workspace-back-link mb-4">
+                        <i class="material-icons text-sm">arrow_back</i>
+                        <span>Back to Workspace</span>
+                    </a>
+                    <span class="reminder-kicker">
+                        <i class="material-icons text-sm">notifications_active</i>
+                        Reminder Hub
+                    </span>
+                    <h1 class="reminder-title">Reminder Hub</h1>
+                    <small class="reminder-subtitle">Capture personal reminders, review assigned task cards, and take action from one consistent flow.</small>
+                    <div class="reminder-flow-row" aria-label="Reminder flow steps">
+                        <span class="reminder-flow-pill"><i class="material-icons text-sm">edit_note</i> Capture</span>
+                        <span class="reminder-flow-pill"><i class="material-icons text-sm">view_kanban</i> Organize</span>
+                        <span class="reminder-flow-pill"><i class="material-icons text-sm">notifications_active</i> Alert</span>
+                        <span class="reminder-flow-pill"><i class="material-icons text-sm">done_all</i> Complete</span>
+                    </div>
+
+                    <div class="reminder-hero-actions">
+                        <a href="#reminder-composer" class="reminder-primary-link">
+                            <i class="material-icons text-sm">add_circle</i>
+                            <span><?php echo $editReminder ? 'Update personal card' : 'Create personal reminder'; ?></span>
+                        </a>
+                        <a href="<?php echo BASE_URL; ?>modules/tasks/list?my_tasks=1" class="reminder-secondary-link">
+                            <i class="material-icons text-sm">assignment</i>
+                            <span>Open my tasks</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="reminder-overview-grid">
+                    <div class="reminder-stat-card">
+                        <span>Open Cards</span>
+                        <strong><?php echo number_format($stats['active']); ?></strong>
+                    </div>
+                    <div class="reminder-stat-card">
+                        <span>Due Today</span>
+                        <strong><?php echo number_format($stats['due_today']); ?></strong>
+                    </div>
+                    <div class="reminder-stat-card">
+                        <span>Overdue</span>
+                        <strong><?php echo number_format($stats['overdue']); ?></strong>
+                    </div>
+                    <div class="reminder-stat-card">
+                        <span>Task-linked</span>
+                        <strong><?php echo number_format($stats['task_linked']); ?></strong>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <?php
+        $tabBoardQs = http_build_query(array_filter([
+            'view' => $view !== 'active' ? $view : null,
+            'source' => $sourceFilter !== 'all' ? $sourceFilter : null,
+            'search' => $search !== '' ? $search : null,
+        ]));
+        $tabCalendarQs = http_build_query(array_filter([
+            'hub' => 'calendar',
+            'cal_month' => $calMonth,
+            'cal_day' => $selectedDay,
+            'view' => $view !== 'active' ? $view : null,
+            'source' => $sourceFilter !== 'all' ? $sourceFilter : null,
+            'search' => $search !== '' ? $search : null,
+        ]));
+        $tabBoardHref = BASE_URL . 'modules/reminders/index' . ($tabBoardQs !== '' ? '?' . $tabBoardQs : '');
+        $tabCalendarHref = BASE_URL . 'modules/reminders/index' . ($tabCalendarQs !== '' ? '?' . $tabCalendarQs : '');
+        ?>
+
+        <nav class="rh-hub-tabs" aria-label="Reminder hub views">
+            <a href="<?php echo htmlspecialchars($tabBoardHref); ?>" class="rh-hub-tab <?php echo $hub === 'board' ? 'is-active' : ''; ?>">
+                <i class="material-icons text-sm">view_kanban</i>
+                Board
+            </a>
+            <a href="<?php echo htmlspecialchars($tabCalendarHref); ?>" class="rh-hub-tab <?php echo $hub === 'calendar' ? 'is-active' : ''; ?>">
+                <i class="material-icons text-sm">calendar_month</i>
+                Calendar &amp; alarms
+            </a>
+        </nav>
+
+        <div class="rh-quick-nav" aria-label="Quick reminder hub actions">
+            <a href="#reminder-composer" class="rh-quick-link is-primary">
+                <i class="material-icons text-sm">add_task</i>
+                New reminder
+            </a>
+            <a href="<?php echo htmlspecialchars($tabBoardHref); ?>" class="rh-quick-link <?php echo $hub === 'board' ? 'is-primary' : ''; ?>">
+                <i class="material-icons text-sm">dashboard</i>
+                Board flow
+            </a>
+            <a href="<?php echo htmlspecialchars($tabCalendarHref); ?>" class="rh-quick-link <?php echo $hub === 'calendar' ? 'is-primary' : ''; ?>">
+                <i class="material-icons text-sm">calendar_month</i>
+                Calendar flow
+            </a>
+            <a href="<?php echo BASE_URL; ?>modules/tasks/list?my_tasks=1" class="rh-quick-link">
+                <i class="material-icons text-sm">assignment</i>
+                Assigned tasks
+            </a>
+        </div>
+
+        <?php if ($success !== ''): ?>
+        <div class="workspace-panel bg-green-50 border-l-4 border-green-400 p-4">
+            <p class="text-sm text-green-700">
+                <?php
+                $successMessages = [
+                    'created' => 'Reminder card created successfully.',
+                    'updated' => 'Reminder card updated successfully.',
+                    'alarm_updated' => 'Reminder alarm updated successfully.',
+                    'completed' => 'Reminder card marked as completed.',
+                    'reopened' => 'Reminder card moved back to active.',
+                    'dismissed' => 'Reminder card archived from your active board.',
+                    'deleted' => 'Reminder note deleted successfully.',
+                ];
+                echo htmlspecialchars($successMessages[$success] ?? 'Reminder workspace updated successfully.');
+                ?>
+            </p>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($error !== ''): ?>
+        <div class="workspace-panel bg-red-50 border-l-4 border-red-400 p-4">
+            <p class="text-sm text-red-700"><?php echo htmlspecialchars($error); ?></p>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!$moduleReady): ?>
+        <div class="reminder-empty">
+            <i class="material-icons">warning</i>
+            <h2 class="text-lg font-bold text-gray-800">Reminder module is not available yet</h2>
+            <p class="mt-2 text-sm text-gray-500">The application could not prepare the reminder storage tables automatically. Run the reminder migration, then reload this page.</p>
+        </div>
+        <?php else: ?>
+        <section class="reminder-panel" id="reminder-composer">
+            <div class="reminder-panel-head">
+                <div>
+                    <span class="reminder-panel-kicker"><?php echo $editReminder ? 'Edit Card' : 'Quick Capture'; ?></span>
+                    <h2 class="reminder-panel-title"><?php echo $editReminder ? 'Update your personal reminder card' : 'Create a new personal reminder'; ?></h2>
+                    <p class="reminder-panel-copy">Personal cards stay private to your board. Task-linked cards remain synced from project assignments automatically.</p>
+                </div>
+                <?php if ($editReminder): ?>
+                <a href="<?php echo BASE_URL; ?>modules/reminders/index<?php echo $redirectQuery !== '' ? '?' . htmlspecialchars($redirectQuery) : ''; ?>" class="reminder-secondary-link">
+                    <i class="material-icons text-sm">close</i>
+                    <span>Cancel edit</span>
+                </a>
+                <?php endif; ?>
+            </div>
+
+            <form method="POST" action="save" class="space-y-5">
+                <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars(csrf_token('reminder_save')); ?>">
+                <input type="hidden" name="redirect_to" value="<?php echo htmlspecialchars($redirectTarget); ?>">
+                <?php if ($editReminder): ?>
+                <input type="hidden" name="id" value="<?php echo (int) $editReminder['id']; ?>">
+                <?php endif; ?>
+
+                <div class="reminder-form-grid">
+                    <div>
+                        <label class="reminder-label" for="reminder-title">Title</label>
+                        <input
+                            id="reminder-title"
+                            type="text"
+                            name="title"
+                            required
+                            maxlength="255"
+                            class="reminder-input"
+                            placeholder="Example: Confirm paper stock request before lunch"
+                            value="<?php echo htmlspecialchars($editReminder['title'] ?? ''); ?>"
+                        >
+                    </div>
+                    <div>
+                        <label class="reminder-label" for="reminder-remind-at">Due Date & Time</label>
+                        <input
+                            id="reminder-remind-at"
+                            type="datetime-local"
+                            name="remind_at"
+                            required
+                            class="reminder-input"
+                            value="<?php echo htmlspecialchars($editReminderRemindAtValue); ?>"
+                        >
+                        <p class="mt-2 text-xs text-gray-500">Set the exact reminder time so alarms can notify you before the deadline.</p>
+                    </div>
+                </div>
+
+                <div class="reminder-form-grid">
+                    <div>
+                        <label class="reminder-label" for="reminder-note">Note</label>
+                        <textarea
+                            id="reminder-note"
+                            name="note"
+                            rows="4"
+                            class="reminder-textarea"
+                            placeholder="Add the detail you want to remember later."
+                        ><?php echo htmlspecialchars($editReminder['note'] ?? ''); ?></textarea>
+                    </div>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="reminder-label" for="reminder-priority">Priority</label>
+                            <select id="reminder-priority" name="priority" class="reminder-select">
+                                <?php
+                                $priorityValue = $editReminder['priority'] ?? 'Medium';
+                                foreach (['Low', 'Medium', 'High', 'Urgent'] as $priorityOption):
+                                ?>
+                                <option value="<?php echo htmlspecialchars($priorityOption); ?>" <?php echo $priorityValue === $priorityOption ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($priorityOption); ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="space-y-3">
+                            <label class="reminder-option-card">
+                                <input type="hidden" name="alarm_enabled" value="0">
+                                <input type="checkbox" name="alarm_enabled" value="1" class="h-4 w-4 rounded border-slate-300 text-teal-600" <?php echo !empty($editReminderAlarmEnabled) ? 'checked' : ''; ?>>
+                                <div class="min-w-0 flex-1">
+                                    <div class="font-semibold text-gray-800">Enable pre-due alarm</div>
+                                    <div class="text-sm text-gray-500">Reminders ring 30 minutes early by default so there is time to react.</div>
+                                </div>
+                            </label>
+
+                            <div class="reminder-alarm-config">
+                                <div class="min-w-0">
+                                    <label class="reminder-label mb-0" for="reminder-alarm-offset">Alarm timing</label>
+                                    <p class="text-xs text-gray-500 mt-1">Choose how long before the due time the reminder should ring.</p>
+                                </div>
+                                <select id="reminder-alarm-offset" name="alarm_offset_minutes" class="reminder-select">
+                                    <?php foreach ($alarmOffsetOptions as $minutes => $label): ?>
+                                    <option value="<?php echo (int) $minutes; ?>" <?php echo (int) $editReminderAlarmOffsetMinutes === (int) $minutes ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($label); ?>
+                                    </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <label class="reminder-option-card">
+                                <input type="hidden" name="pinned" value="0">
+                                <input type="checkbox" name="pinned" value="1" class="h-4 w-4 rounded border-slate-300 text-teal-600" <?php echo !empty($editReminder['pinned']) ? 'checked' : ''; ?>>
+                                <div class="min-w-0 flex-1">
+                                    <div class="font-semibold text-gray-800">Pin this card</div>
+                                    <div class="text-sm text-gray-500">Pinned personal reminders stay near the top of your board.</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3">
+                    <button type="submit" class="reminder-primary-link border-0">
+                        <i class="material-icons text-sm"><?php echo $editReminder ? 'save' : 'add_task'; ?></i>
+                        <span><?php echo $editReminder ? 'Save reminder card' : 'Create reminder card'; ?></span>
+                    </button>
+                    <span class="text-sm text-gray-500">Task-linked reminder cards are generated automatically from task assignments and stay synced with task status changes.</span>
+                </div>
+            </form>
+
+            <?php if ($editReminder): ?>
+            <form method="POST" action="action" class="mt-4">
+                <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars(csrf_token('reminder_action')); ?>">
+                <input type="hidden" name="id" value="<?php echo (int) $editReminder['id']; ?>">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="redirect_to" value="<?php echo htmlspecialchars($redirectTarget); ?>">
+                <button
+                    type="submit"
+                    class="reminder-secondary-link"
+                    onclick="return confirm('Delete this reminder note permanently?');"
+                >
+                    <i class="material-icons text-sm">delete</i>
+                    <span>Delete note</span>
+                </button>
+            </form>
+            <?php endif; ?>
+        </section>
+
+        <?php if ($hub === 'calendar'): ?>
+        <?php include __DIR__ . '/partials/_calendar_hub.php'; ?>
+        <?php endif; ?>
+
+        <?php if ($hub === 'board'): ?>
+        <section class="reminder-panel">
+            <div class="reminder-panel-head">
+                <div>
+                    <span class="reminder-panel-kicker">Filters</span>
+                    <h2 class="reminder-panel-title">Focus the board the way you work</h2>
+                    <p class="reminder-panel-copy">Switch between all cards, personal notes, and task-generated reminders without losing context.</p>
+                </div>
+            </div>
+
+            <form method="GET" action="<?php echo BASE_URL; ?>modules/reminders/index" class="reminder-filter-grid" id="reminderFilterForm">
+                <div class="space-y-4">
+                    <div>
+                        <label class="reminder-label" for="reminder-search">Search Cards</label>
+                        <input
+                            id="reminder-search"
+                            type="search"
+                            name="search"
+                            class="reminder-input"
+                            placeholder="Search titles, notes, or project names"
+                            value="<?php echo htmlspecialchars($search); ?>"
+                        >
+                    </div>
+                    <div class="reminder-filter-pills">
+                        <?php
+                        $viewOptions = [
+                            'active' => ['label' => 'Active', 'count' => (int) ($stats['active'] ?? 0)],
+                            'all' => ['label' => 'All cards', 'count' => (int) (($stats['active'] ?? 0) + ($stats['completed'] ?? 0) + ($stats['dismissed'] ?? 0))],
+                            'completed' => ['label' => 'Completed', 'count' => (int) ($stats['completed'] ?? 0)],
+                            'dismissed' => ['label' => 'Archived', 'count' => (int) ($stats['dismissed'] ?? 0)],
+                        ];
+                        foreach ($viewOptions as $value => $config):
+                        ?>
+                        <label class="reminder-pill <?php echo $view === $value ? 'is-active' : ''; ?>">
+                            <input type="radio" name="view" value="<?php echo htmlspecialchars($value); ?>" class="sr-only" <?php echo $view === $value ? 'checked' : ''; ?>>
+                            <span><?php echo htmlspecialchars($config['label']); ?></span>
+                            <span class="reminder-pill-count"><?php echo number_format((int) ($config['count'] ?? 0)); ?></span>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="reminder-label" for="reminder-source">Source</label>
+                        <select id="reminder-source" name="source" class="reminder-select">
+                            <option value="all" <?php echo $sourceFilter === 'all' ? 'selected' : ''; ?>>All sources</option>
+                            <option value="self" <?php echo $sourceFilter === 'self' ? 'selected' : ''; ?>>Personal cards only</option>
+                            <option value="task_assignment" <?php echo $sourceFilter === 'task_assignment' ? 'selected' : ''; ?>>Task-linked cards only</option>
+                        </select>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <button type="submit" class="reminder-secondary-link">
+                            <i class="material-icons text-sm">tune</i>
+                            <span>Apply filters</span>
+                        </button>
+                        <a href="<?php echo BASE_URL; ?>modules/reminders/index" class="text-sm font-semibold text-gray-500 hover:text-teal-700">Reset</a>
+                    </div>
+                </div>
+            </form>
+        </section>
+
+        <?php if ($view === 'active' && $sourceFilter === 'all' && !empty($spotlightCards)): ?>
+        <section class="reminder-panel">
+            <div class="reminder-panel-head">
+                <div>
+                    <span class="reminder-panel-kicker">Needs Attention</span>
+                    <h2 class="reminder-panel-title">Cards that should not wait</h2>
+                    <p class="reminder-panel-copy">These are either overdue or due today, so they stay at the front of the board.</p>
+                </div>
+            </div>
+
+            <div class="reminder-board-grid">
+                <?php foreach (array_slice($spotlightCards, 0, 4) as $reminder): ?>
+                    <?php include __DIR__ . '/partials/_reminder_card.php'; ?>
+                <?php endforeach; ?>
+            </div>
+        </section>
+        <?php endif; ?>
+
+        <?php
+        $showGroupedActiveBoard = $view === 'active' && $sourceFilter === 'all';
+        $hasAnyCards = !empty($reminders);
+        ?>
+
+        <?php if ($showGroupedActiveBoard): ?>
+            <section class="reminder-panel">
+                <div class="reminder-panel-head">
+                    <div>
+                        <span class="reminder-panel-kicker">Task-driven</span>
+                        <h2 class="reminder-panel-title">Assigned work reminders</h2>
+                        <p class="reminder-panel-copy">Task-linked cards stay synced with assignment, due date, and completion updates from task management.</p>
+                    </div>
+                </div>
+
+                <?php if (!empty($taskLinkedCards)): ?>
+                <div class="reminder-board-grid">
+                    <?php foreach ($taskLinkedCards as $reminder): ?>
+                        <?php include __DIR__ . '/partials/_reminder_card.php'; ?>
+                    <?php endforeach; ?>
+                </div>
+                <?php else: ?>
+                <div class="reminder-empty">
+                    <i class="material-icons">assignment_turned_in</i>
+                    <h3 class="text-lg font-bold text-gray-800">No task-linked cards yet</h3>
+                    <p class="mt-2 text-sm text-gray-500">As soon as tasks are assigned to you, reminder cards will appear here automatically.</p>
+                </div>
+                <?php endif; ?>
+            </section>
+
+            <section class="reminder-panel">
+                <div class="reminder-panel-head">
+                    <div>
+                        <span class="reminder-panel-kicker">Personal Board</span>
+                        <h2 class="reminder-panel-title">Your private notes to self</h2>
+                        <p class="reminder-panel-copy">Use these for lightweight follow-ups, checklists, and anything that should not become a project task.</p>
+                    </div>
+                </div>
+
+                <?php if (!empty($personalCards)): ?>
+                <div class="reminder-board-grid">
+                    <?php foreach ($personalCards as $reminder): ?>
+                        <?php include __DIR__ . '/partials/_reminder_card.php'; ?>
+                    <?php endforeach; ?>
+                </div>
+                <?php else: ?>
+                <div class="reminder-empty">
+                    <i class="material-icons">note_alt</i>
+                    <h3 class="text-lg font-bold text-gray-800">No personal cards yet</h3>
+                    <p class="mt-2 text-sm text-gray-500">Create one quick note above to start using reminder cards as a simple to-do system.</p>
+                </div>
+                <?php endif; ?>
+            </section>
+        <?php else: ?>
+            <section class="reminder-panel">
+                <div class="reminder-panel-head">
+                    <div>
+                        <span class="reminder-panel-kicker">Reminder Cards</span>
+                        <h2 class="reminder-panel-title">Filtered board results</h2>
+                        <p class="reminder-panel-copy">Showing the cards that match your current view, source, and search filters.</p>
+                    </div>
+                    <div class="text-sm text-gray-500"><?php echo number_format(count($reminders)); ?> card<?php echo count($reminders) === 1 ? '' : 's'; ?></div>
+                </div>
+
+                <?php if ($hasAnyCards): ?>
+                <div class="reminder-board-grid">
+                    <?php foreach ($reminders as $reminder): ?>
+                        <?php include __DIR__ . '/partials/_reminder_card.php'; ?>
+                    <?php endforeach; ?>
+                </div>
+                <?php else: ?>
+                <div class="reminder-empty">
+                    <i class="material-icons">search_off</i>
+                    <h3 class="text-lg font-bold text-gray-800">No cards match this view</h3>
+                    <p class="mt-2 text-sm text-gray-500">Try changing the filter combination or create a new personal reminder card.</p>
+                </div>
+                <?php endif; ?>
+            </section>
+        <?php endif; ?>
+
+        <?php endif; ?>
+
+        <?php endif; ?>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const reminderFilterForm = document.getElementById('reminderFilterForm');
+    if (!reminderFilterForm) {
+        return;
+    }
+
+    reminderFilterForm.addEventListener('change', function(event) {
+        const target = event.target;
+        if (!target || (target.name !== 'view' && target.name !== 'source')) {
+            return;
+        }
+
+        reminderFilterForm.submit();
+    });
+});
+</script>
+
+<?php include '../../includes/footer.php'; ?>

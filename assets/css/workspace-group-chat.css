@@ -1,0 +1,492 @@
+/* Split layout for task/project workspaces + group-chat pane inspired by Kanban + chat dashboards */
+
+.workspace-chat-layout {
+    display: block;
+}
+
+@media (min-width: 1180px) {
+    .workspace-chat-layout--with-pane {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) clamp(288px, 28vw, 380px);
+        gap: 1.5rem;
+        align-items: start;
+    }
+}
+
+.workspace-chat-layout-main {
+    min-width: 0;
+}
+
+/* Kanban strip (project task overview) */
+
+.project-task-kanban-shell {
+    margin-top: 0.25rem;
+}
+
+.project-task-kanban-scroll {
+    display: flex;
+    gap: 1rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    min-height: 0;
+}
+
+.project-task-kanban-col {
+    flex: 0 0 min(100%, 280px);
+    scroll-snap-align: start;
+    background: rgba(248, 250, 252, 0.9);
+    border: 1px solid rgba(226, 232, 240, 0.95);
+    border-radius: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    max-height: min(70vh, 720px);
+    min-height: 200px;
+    min-width: 0;
+}
+
+.project-task-kanban-col-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.85rem 1rem 0.5rem;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+    position: sticky;
+    top: 0;
+    background: inherit;
+    border-radius: 1.25rem 1.25rem 0 0;
+    z-index: 1;
+}
+
+.project-task-kanban-col-title {
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.project-task-kanban-col-meta {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #0f766e;
+    background: rgba(240, 253, 244, 0.9);
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+}
+
+.project-task-kanban-cards {
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+.project-task-card-kanban {
+    background: #fff;
+    border-radius: 1rem;
+    border: 1px solid rgba(226, 232, 240, 0.98);
+    box-shadow: 0 14px 32px -24px rgba(15, 23, 42, 0.25);
+    padding: 0.9rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.project-task-card-kanban:hover {
+    border-color: rgba(15, 118, 110, 0.28);
+    box-shadow: 0 22px 40px -26px rgba(15, 23, 42, 0.35);
+}
+
+/* Right chat pane */
+
+.workspace-chat-pane {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid rgba(226, 232, 240, 0.95);
+    border-radius: 1.35rem;
+    box-shadow: 0 26px 50px -32px rgba(15, 23, 42, 0.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 6rem);
+}
+
+.workspace-chat-pane-head {
+    padding: 1rem 1.15rem;
+    border-bottom: 1px solid rgba(241, 245, 249, 0.95);
+}
+
+.workspace-chat-pane-title {
+    font-size: 1.02rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+}
+
+.workspace-chat-pane-sub {
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94a3b8;
+}
+
+.workspace-chat-members {
+    padding: 0.85rem 1.15rem 1rem;
+    border-bottom: 1px solid rgba(241, 245, 249, 0.95);
+}
+
+.workspace-chat-members-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.7rem;
+}
+
+.workspace-chat-members-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+}
+
+.workspace-chat-members-count {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #0f766e;
+}
+
+.workspace-chat-avatars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.workspace-chat-avatar-wrap {
+    position: relative;
+    width: 2.25rem;
+    height: 2.25rem;
+    flex-shrink: 0;
+}
+
+.workspace-chat-avatar-img {
+    width: 100%;
+    height: 100%;
+    border-radius: 999px;
+    object-fit: cover;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.workspace-chat-avatar-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #0f766e, #14b8a6);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 800;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.workspace-chat-you-badge {
+    position: absolute;
+    bottom: -0.15rem;
+    right: -0.15rem;
+    font-size: 0.5rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    background: #2563eb;
+    color: #fff;
+    padding: 0.05rem 0.25rem;
+    border-radius: 4px;
+    line-height: 1.2;
+}
+
+.workspace-chat-thread {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.workspace-chat-thread-heading {
+    padding: 0.65rem 1.15rem 0.25rem;
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+}
+
+.workspace-chat-feed {
+    flex: 1;
+    min-height: 180px;
+    max-height: 46vh;
+    overflow-y: auto;
+    padding: 0.6rem 1rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.workspace-chat-empty {
+    margin: auto 0;
+    text-align: center;
+    padding: 1.5rem 0.5rem;
+    font-size: 0.82rem;
+    color: #94a3b8;
+}
+
+.workspace-chat-bubble {
+    align-self: flex-start;
+    max-width: 100%;
+}
+
+.workspace-chat-bubble--self {
+    align-self: flex-end;
+}
+
+.workspace-chat-bubble-meta {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    margin-bottom: 0.3rem;
+}
+
+.workspace-chat-bubble--self .workspace-chat-bubble-meta {
+    justify-content: flex-end;
+}
+
+.workspace-chat-bubble-avatar,
+.workspace-chat-bubble-avatar-fallback {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.workspace-chat-bubble-avatar-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.56rem;
+    font-weight: 800;
+    color: #fff;
+    background: linear-gradient(135deg, #6366f1, #818cf8);
+}
+
+.workspace-chat-bubble-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.6rem;
+    min-width: 0;
+}
+
+.workspace-chat-bubble--self .workspace-chat-bubble-head {
+    justify-content: flex-end;
+}
+
+.workspace-chat-bubble-name {
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #0f766e;
+}
+
+.workspace-chat-bubble--self .workspace-chat-bubble-name {
+    color: #1d4ed8;
+}
+
+.workspace-chat-bubble-time {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #cbd5e1;
+}
+
+.workspace-chat-bubble-body {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: #1e293b;
+    padding: 0.6rem 0.85rem;
+    border-radius: 1rem;
+    background: #f1f5f9;
+}
+
+.workspace-chat-bubble--peer .workspace-chat-bubble-body {
+    border-bottom-left-radius: 0.25rem;
+}
+
+.workspace-chat-bubble--self .workspace-chat-bubble-body {
+    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    color: #ffffff;
+}
+
+.workspace-chat-bubble-files {
+    display: flex;
+    flex-wrap: wrap;
+    flex-direction: row;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+    align-items: flex-start;
+}
+
+.workspace-chat-voice-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    width: 100%;
+    max-width: min(240px, 100%);
+}
+
+.workspace-chat-voice-audio {
+    width: 100%;
+    height: 32px;
+    vertical-align: middle;
+}
+
+.workspace-chat-voice-meta {
+    font-size: 0.6rem;
+    font-weight: 600;
+    opacity: 0.8;
+}
+
+.press-voice-btn.press-voice-btn--recording {
+    color: #b91c1c !important;
+    background: #fee2e2 !important;
+    border-color: #fecaca !important;
+}
+
+.workspace-chat-bubble--self .workspace-chat-voice-meta {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.workspace-chat-file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.85);
+    color: #0f766e;
+    text-decoration: none;
+    max-width: 100%;
+}
+
+.workspace-chat-bubble--self .workspace-chat-file-chip {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.workspace-chat-compose {
+    border-top: 1px solid rgba(241, 245, 249, 0.95);
+    padding: 0.75rem 1rem 1rem;
+    background: rgba(255, 255, 255, 0.65);
+}
+
+.workspace-chat-input {
+    width: 100%;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.85rem;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.8125rem;
+    resize: none;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.workspace-chat-input:focus {
+    border-color: rgba(15, 118, 110, 0.45);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.workspace-chat-compose-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.55rem;
+}
+
+.workspace-chat-compose-actions--end {
+    justify-content: flex-end;
+}
+
+.workspace-chat-file-btn {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.35rem;
+    height: 2.35rem;
+    border-radius: 0.75rem;
+    color: #64748b;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.workspace-chat-file-btn:hover {
+    color: #0f766e;
+    background: #ecfdf5;
+}
+
+.workspace-chat-send {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.85rem;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: linear-gradient(135deg, #0f766e, #0d9488);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 14px 24px -16px rgba(15, 118, 110, 0.7);
+}
+
+.workspace-chat-send:hover {
+    filter: brightness(1.06);
+}
+
+.workspace-chat-send--full {
+    width: 100%;
+}
+
+.task-view-lower-grid--solo {
+    grid-template-columns: 1fr !important;
+}
+
+.workspace-chat-inline-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.workspace-chat-inline-icon--lg {
+    width: 1.125rem;
+    height: 1.125rem;
+}
+
+.workspace-chat-inline-icon--send {
+    width: 18px;
+    height: 18px;
+}

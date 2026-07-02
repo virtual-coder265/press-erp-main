@@ -1,0 +1,99 @@
+<!-- 
+EXPORT BUTTON DROPDOWN TEMPLATE
+Copy this HTML into your list.php file header section
+-->
+
+<!-- Export Dropdown -->
+<div class="relative inline-block">
+    <button id="exportDropdown" class="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 transition flex items-center">
+        <i class="material-icons mr-2">download</i> Export
+        <i class="material-icons ml-2 text-sm">arrow_drop_down</i>
+    </button>
+    <div id="exportMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+        <!-- PDF Export -->
+        <a href="export?format=pdf<?php 
+            // Add your filters here
+            // Example: echo !empty($search_query) ? '&search=' . urlencode($search_query) : ''; 
+        ?>" 
+           class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
+            <i class="material-icons text-red-500 mr-2" style="font-size: 18px;">picture_as_pdf</i> Export as PDF
+        </a>
+        
+        <!-- Excel Export -->
+        <a href="export?format=excel<?php 
+            // Add your filters here
+        ?>" 
+           class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
+            <i class="material-icons text-green-600 mr-2" style="font-size: 18px;">table_chart</i> Export as Excel
+        </a>
+        
+        <!-- CSV Export -->
+        <a href="export?format=csv<?php 
+            // Add your filters here
+        ?>" 
+           class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
+            <i class="material-icons text-blue-600 mr-2" style="font-size: 18px;">description</i> Export as CSV
+        </a>
+    </div>
+</div>
+
+<!-- 
+JAVASCRIPT FOR DROPDOWN
+Add this script at the bottom of your list.php file, before the closing tag
+-->
+
+<script>
+// Export dropdown toggle
+document.addEventListener('DOMContentLoaded', function() {
+    const exportDropdown = document.getElementById('exportDropdown');
+    const exportMenu = document.getElementById('exportMenu');
+    
+    if (exportDropdown && exportMenu) {
+        exportDropdown.addEventListener('click', function(e) {
+            e.stopPropagation();
+            exportMenu.classList.toggle('hidden');
+        });
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!exportMenu.classList.contains('hidden') && !exportMenu.contains(e.target)) {
+                exportMenu.classList.add('hidden');
+            }
+        });
+    }
+});
+</script>
+
+<!-- 
+COMPLETE USAGE EXAMPLE 
+Here's how your header section might look:
+-->
+
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">Your Module Title</h1>
+    <div class="flex gap-2">
+        <!-- Export Dropdown (paste from above) -->
+        <div class="relative inline-block">
+            <button id="exportDropdown" class="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 transition flex items-center">
+                <i class="material-icons mr-2">download</i> Export
+                <i class="material-icons ml-2 text-sm">arrow_drop_down</i>
+            </button>
+            <div id="exportMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                <a href="export?format=pdf" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
+                    <i class="material-icons text-red-500 mr-2" style="font-size: 18px;">picture_as_pdf</i> Export as PDF
+                </a>
+                <a href="export?format=excel" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
+                    <i class="material-icons text-green-600 mr-2" style="font-size: 18px;">table_chart</i> Export as Excel
+                </a>
+                <a href="export?format=csv" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
+                    <i class="material-icons text-blue-600 mr-2" style="font-size: 18px;">description</i> Export as CSV
+                </a>
+            </div>
+        </div>
+        
+        <!-- Other action buttons -->
+        <a href="create" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition flex items-center">
+            <i class="material-icons mr-2">add</i> New Entry
+        </a>
+    </div>
+</div>

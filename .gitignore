@@ -1,0 +1,22 @@
+# Ignore root .ignore file
+/.ignore
+
+# Ignore markdown files
+*.md
+
+# Ignore common sensitive files
+*.env
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.jks
+*.secret
+*.env-local
+*.env-production
+
+# Ignore specified folders and archives
+/cli-tools/
+/node_modules
+/cron.tar

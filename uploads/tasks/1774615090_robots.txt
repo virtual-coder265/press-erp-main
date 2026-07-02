@@ -1,0 +1,56 @@
+# ================================================================
+# Hillstor Paints – robots.txt
+# Domain: hillstorpaintsmw.com
+# ================================================================
+
+# ── All crawlers ─────────────────────────────────────────────────
+User-agent: *
+Allow: /
+
+# Disallow back-office and internal routes
+Disallow: /admin/
+Disallow: /ajax/
+Disallow: /logs/
+Disallow: /sql/
+Disallow: /errors/
+Disallow: /includes/
+Disallow: /cart
+Disallow: /cart/
+
+# Disallow query-string duplicates that create thin/duplicate content
+Disallow: /*?search=
+Disallow: /*?page=
+Disallow: /*?sort=
+
+# Allow category filter – these are indexable product listing pages
+Allow: /products?cat=
+
+# ── Googlebot (standard) ─────────────────────────────────────────
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 1
+
+# ── Googlebot-Image ──────────────────────────────────────────────
+User-agent: Googlebot-Image
+Allow: /images/
+
+# ── Bingbot ──────────────────────────────────────────────────────
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 2
+
+# ── Social crawlers (allow for OG / Twitter Card previews) ───────
+User-agent: facebookexternalhit
+Allow: /
+
+User-agent: Twitterbot
+Allow: /
+
+User-agent: LinkedInBot
+Allow: /
+
+User-agent: WhatsApp
+Allow: /
+
+# ── Sitemaps ─────────────────────────────────────────────────────
+Sitemap: https://hillstorpaintsmw.com/sitemap.xml

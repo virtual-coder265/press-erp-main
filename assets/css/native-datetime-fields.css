@@ -1,0 +1,25 @@
+/**
+ * Native date/datetime inputs on workspace create forms and action modals.
+ */
+.press-native-dt-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 2.75rem;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    color: #0f172a;
+    background: #fff;
+}
+
+.press-native-dt-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.65;
+}
+
+.press-native-dt-input::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
+
+.action-modal-form .press-native-dt-input {
+    min-height: auto;
+}

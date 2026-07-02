@@ -1,0 +1,9 @@
+﻿Field	Type	Null	Key	Default	Extra
+id	int(11)	NO	PRI	NULL	auto_increment
+estimation_id	int(11)	NO	MUL	NULL	
+labour_name	varchar(150)	NO		NULL	
+measure_type	varchar(50)	YES		items	
+quantity	decimal(10,2)	YES		0.00	
+rate	decimal(10,2)	YES		0.00	
+total	decimal(15,2)	YES		0.00	
+sort_order	int(11)	YES		0	
