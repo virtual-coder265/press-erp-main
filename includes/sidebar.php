@@ -275,7 +275,7 @@ $canViewOperations = permissions_can_view_operations();
                 <button type="button" data-sidebar-toggle="hr-sub" aria-expanded="<?php echo $isHr ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isHr); ?>">
                     <span class="sidebar-link-group">
                         <span class="sidebar-icon-wrap"><i data-lucide="id-card" aria-hidden="true"></i></span>
-                        <span class="nav-text">HR management</span>
+                        <span class="nav-text">User management</span>
                     </span>
                     <i class="text-sm nav-chevron transition-transform duration-200 <?php echo $isHr ? 'rotate-180' : ''; ?>" data-lucide="chevron-down" aria-hidden="true"></i>
                 </button>
