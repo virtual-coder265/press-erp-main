@@ -2,13 +2,20 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['view_dispatch']);
+require_once __DIR__ . '/../../includes/work_order_helper.php';
 
 $id = $_GET['id'] ?? 0;
+work_order_bootstrap($pdo);
 
-$stmt = $pdo->prepare("SELECT d.*, u1.name as authorised_dispatcher_name, u2.name as created_by_name 
+$stmt = $pdo->prepare("SELECT d.*, u1.name as authorised_dispatcher_name, u2.name as created_by_name, u3.name AS closed_by_name,
+                      wo.status AS work_order_status
                       FROM dispatch_register d 
                       LEFT JOIN users u1 ON d.authorised_dispatcher_id = u1.id 
                       LEFT JOIN users u2 ON d.created_by = u2.id 
+                      LEFT JOIN users u3 ON d.closed_by = u3.id
+                      LEFT JOIN work_orders wo ON d.work_order_id = wo.id
                       WHERE d.id = ?");
 $stmt->execute([$id]);
 $dispatch = $stmt->fetch();
@@ -34,6 +41,11 @@ include '../../includes/header.php';
             <a href="edit?id=<?php echo $dispatch['id']; ?>" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition">
                 <i class="material-icons align-middle mr-1">edit</i> Edit
             </a>
+            <?php if (empty($dispatch['collected_at'])): ?>
+                <a href="collect?id=<?php echo $dispatch['id']; ?>" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">
+                    <i class="material-icons align-middle mr-1">task_alt</i> Record Collection
+                </a>
+            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -46,6 +58,11 @@ include '../../includes/header.php';
             <p class="text-lg font-semibold text-gray-800 mb-4">
                 <?php echo htmlspecialchars($dispatch['work_order_number'] ?: 'Not specified'); ?>
             </p>
+            <?php if (!empty($dispatch['work_order_id'])): ?>
+                <a href="<?php echo BASE_URL; ?>modules/work_orders/view?id=<?php echo (int) $dispatch['work_order_id']; ?>" class="text-sm text-indigo-600 hover:underline">
+                    View linked work order
+                </a>
+            <?php endif; ?>
         </div>
         
         <div>
@@ -101,6 +118,16 @@ include '../../includes/header.php';
             <label class="block text-sm font-semibold text-gray-500 uppercase mb-1">Authorised Dispatcher</label>
             <p class="text-lg font-semibold text-gray-800 mb-4">
                 <?php echo htmlspecialchars($dispatch['authorised_dispatcher_name'] ?: 'Not assigned'); ?>
+            </p>
+        </div>
+
+        <div>
+            <label class="block text-sm font-semibold text-gray-500 uppercase mb-1">Customer Collection</label>
+            <p class="text-gray-700 mb-4">
+                <?php echo htmlspecialchars($dispatch['collected_by_name'] ?: 'Pending collection'); ?>
+                <?php if (!empty($dispatch['collected_at'])): ?>
+                    <span class="block text-xs text-gray-500 mt-1"><?php echo htmlspecialchars($dispatch['collected_at']); ?></span>
+                <?php endif; ?>
             </p>
         </div>
         

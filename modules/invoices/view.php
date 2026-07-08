@@ -14,11 +14,15 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['view_invoices']);
 require_once __DIR__ . '/../../libs/InvoiceAuditMigrator.php';
 require_once __DIR__ . '/../../libs/InvoicePaymentGrMigrator.php';
+require_once __DIR__ . '/../../includes/work_order_helper.php';
 
 InvoiceAuditMigrator::ensure($pdo);
 InvoicePaymentGrMigrator::ensure($pdo);
+work_order_bootstrap($pdo);
 
 $id = (int) ($_GET['id'] ?? 0);
 if ($id <= 0) {
@@ -32,10 +36,14 @@ $stmt = $pdo->prepare("
            e.status          AS est_status,
            e.pre_vat_total   AS est_pre_vat_total,
            e.vat_percent     AS est_vat_percent,
+           wo.id             AS work_order_id,
+           wo.work_order_number,
+           wo.status         AS work_order_status,
            uc.name           AS created_by_name,
            ue.name           AS last_edited_by_name
     FROM invoices i
     LEFT JOIN estimations e ON i.estimation_id = e.id
+    LEFT JOIN work_orders wo ON wo.invoice_id = i.id
     LEFT JOIN users uc      ON i.created_by    = uc.id
     LEFT JOIN users ue      ON i.last_edited_by = ue.id
     WHERE i.id = :id
@@ -206,6 +214,17 @@ unset($_SESSION['success'], $_SESSION['error']);
                 class="inline-flex items-center gap-1 bg-green-600 text-white px-4 py-2 rounded-lg shadow hover:bg-green-700 transition">
                 <i data-lucide="banknote" class="h-4 w-4" aria-hidden="true"></i> Record Payment
             </a>
+            <?php if (!empty($invoice['work_order_id'])): ?>
+                <a href="<?php echo BASE_URL; ?>modules/work_orders/view?id=<?php echo (int) $invoice['work_order_id']; ?>"
+                    class="inline-flex items-center gap-1 bg-indigo-600 text-white px-4 py-2 rounded-lg shadow hover:bg-indigo-700 transition">
+                    <i data-lucide="clipboard-list" class="h-4 w-4" aria-hidden="true"></i> View Work Order
+                </a>
+            <?php elseif (($invoice['status'] ?? '') !== 'Cancelled'): ?>
+                <a href="<?php echo BASE_URL; ?>modules/work_orders/create?invoice_id=<?php echo (int) $invoice['id']; ?>"
+                    class="inline-flex items-center gap-1 bg-indigo-600 text-white px-4 py-2 rounded-lg shadow hover:bg-indigo-700 transition">
+                    <i data-lucide="clipboard-list" class="h-4 w-4" aria-hidden="true"></i> Issue Work Order (Costing)
+                </a>
+            <?php endif; ?>
 
             <?php if ($paymentCount === 0): ?>
                 <button type="button" onclick="openDeleteModal()"
@@ -277,6 +296,21 @@ unset($_SESSION['success'], $_SESSION['error']);
             <div>
                 <dt class="text-gray-500">VAT rate applied</dt>
                 <dd class="text-gray-800"><?php echo number_format($vatPercent, 2); ?>%</dd>
+            </div>
+            <div>
+                <dt class="text-gray-500">Work order</dt>
+                <dd class="text-gray-800">
+                    <?php if (!empty($invoice['work_order_id'])): ?>
+                        <a href="<?php echo BASE_URL; ?>modules/work_orders/view?id=<?php echo (int) $invoice['work_order_id']; ?>" class="text-indigo-600 hover:underline">
+                            <?php echo htmlspecialchars($invoice['work_order_number']); ?>
+                        </a>
+                        <span class="text-xs text-gray-500">(<?php echo htmlspecialchars($invoice['work_order_status']); ?>)</span>
+                    <?php elseif (!empty($invoice['customer_accepted_at'])): ?>
+                        Accepted on <?php echo htmlspecialchars((string) $invoice['customer_accepted_at']); ?>
+                    <?php else: ?>
+                        <span class="text-gray-400">Not generated yet</span>
+                    <?php endif; ?>
+                </dd>
             </div>
         </dl>
     </div>

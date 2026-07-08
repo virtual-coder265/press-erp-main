@@ -13,9 +13,13 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['view_invoices']);
 require_once __DIR__ . '/../../libs/InvoiceAuditMigrator.php';
+require_once __DIR__ . '/../../includes/work_order_helper.php';
 
 InvoiceAuditMigrator::ensure($pdo);
+work_order_bootstrap($pdo);
 
 include '../../includes/header.php';
 
@@ -47,9 +51,13 @@ $status_filter = $_GET['status'] ?? '';
 
 $query = "SELECT i.*,
                  e.estimation_number,
+                 wo.id AS work_order_id,
+                 wo.work_order_number,
+                 wo.status AS work_order_status,
                  (SELECT COUNT(*) FROM invoice_payments p WHERE p.invoice_id = i.id) AS payment_count
           FROM invoices i
           LEFT JOIN estimations e ON i.estimation_id = e.id
+          LEFT JOIN work_orders wo ON wo.invoice_id = i.id
           WHERE 1=1";
 
 $params = [];
@@ -198,6 +206,19 @@ function invoice_status_class(string $status): string
                         <p class="list-card-value font-semibold <?php echo $balance > 0 ? 'text-red-600' : 'text-green-600'; ?>">MK <?php echo number_format($balance, 2); ?></p>
                     </div>
                 </div>
+                <div class="mt-3 text-xs text-gray-500">
+                    Work order:
+                    <?php if (!empty($inv['work_order_id'])): ?>
+                        <a href="<?php echo BASE_URL; ?>modules/work_orders/view?id=<?php echo (int) $inv['work_order_id']; ?>" class="font-semibold text-indigo-600 hover:underline">
+                            <?php echo htmlspecialchars($inv['work_order_number']); ?>
+                        </a>
+                        <span class="text-gray-400">(<?php echo htmlspecialchars($inv['work_order_status']); ?>)</span>
+                    <?php elseif (!empty($inv['customer_accepted_at'])): ?>
+                        <span class="text-amber-700 font-medium">Accepted, pending generation</span>
+                    <?php else: ?>
+                        <span>Not generated</span>
+                    <?php endif; ?>
+                </div>
                 <div class="grid grid-cols-4 gap-2 mt-4">
                     <a href="view?id=<?php echo (int) $inv['id']; ?>" class="list-icon-action bg-blue-600 text-white" aria-label="View invoice" title="View">
                         <i data-lucide="eye" class="h-4 w-4" aria-hidden="true"></i>
@@ -244,6 +265,7 @@ function invoice_status_class(string $status): string
                     <th class="text-left text-xs font-medium text-gray-500 uppercase">Estimation #</th>
                     <th class="text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
                     <th class="text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th class="text-left text-xs font-medium text-gray-500 uppercase">Work Order</th>
                     <th class="text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                     <th class="text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
                     <th class="text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -263,6 +285,18 @@ function invoice_status_class(string $status): string
                             <?php echo htmlspecialchars($inv['customer_name'] ?: '—'); ?>
                         </td>
                         <td class="text-sm text-gray-500"><?php echo htmlspecialchars($inv['generated_date']); ?></td>
+                        <td class="text-sm text-gray-700 cell-wrap">
+                            <?php if (!empty($inv['work_order_id'])): ?>
+                                <a href="<?php echo BASE_URL; ?>modules/work_orders/view?id=<?php echo (int) $inv['work_order_id']; ?>" class="font-semibold text-indigo-600 hover:underline">
+                                    <?php echo htmlspecialchars($inv['work_order_number']); ?>
+                                </a>
+                                <div class="text-xs text-gray-500"><?php echo htmlspecialchars($inv['work_order_status']); ?></div>
+                            <?php elseif (!empty($inv['customer_accepted_at'])): ?>
+                                <span class="text-amber-700">Accepted</span>
+                            <?php else: ?>
+                                <span class="text-gray-400">Not generated</span>
+                            <?php endif; ?>
+                        </td>
                         <td>
                             <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full <?php echo invoice_status_class($inv['display_status']); ?>">
                                 <?php echo htmlspecialchars($inv['display_status']); ?>
@@ -308,7 +342,7 @@ function invoice_status_class(string $status): string
                 <?php endforeach; ?>
                 <?php if (empty($invoices)): ?>
                     <tr>
-                        <td colspan="7" class="text-center text-gray-500">No invoices found.</td>
+                        <td colspan="8" class="text-center text-gray-500">No invoices found.</td>
                     </tr>
                 <?php endif; ?>
             </tbody>

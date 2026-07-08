@@ -3,10 +3,6 @@ require_once __DIR__ . '/../../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../../config/database.php';
 
-// Role Check
-if ($_SESSION['role'] != 'System Admin' && $_SESSION['role'] != 'Costing' && $_SESSION['role'] != 'Procurement') {
-    die("Access Denied.");
-}
 
 $categories = $pdo->query("SELECT * FROM service_categories ORDER BY name")->fetchAll();
 

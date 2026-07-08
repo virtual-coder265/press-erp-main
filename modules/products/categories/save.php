@@ -3,9 +3,6 @@ require_once __DIR__ . '/../../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../../config/database.php';
 
-if ($_SESSION['role'] != 'System Admin' && $_SESSION['role'] != 'Costing' && $_SESSION['role'] != 'Procurement') {
-    die("Access Denied.");
-}
 
 $action = $_REQUEST['action'] ?? '';
 

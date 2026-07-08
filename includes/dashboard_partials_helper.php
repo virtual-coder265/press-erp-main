@@ -532,19 +532,23 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
         $search_query = trim((string) $_POST['search_query']);
         $search_pattern = '%' . $search_query . '%';
         try {
+            if (hasPermission('view_estimations')) {
             $stmt = $pdo->prepare("SELECT 'estimation' as type, id, estimation_number as title, customer_name as subtitle, created_at
                                   FROM estimations
                                   WHERE estimation_number LIKE :query OR customer_name LIKE :query OR job_description LIKE :query
                                   LIMIT 5");
             $stmt->execute(['query' => $search_pattern]);
             $search_results = array_merge($search_results, $stmt->fetchAll());
+            }
 
+            if (hasPermission('view_invoices')) {
             $stmt = $pdo->prepare("SELECT 'invoice' as type, id, invoice_number as title, customer_name as subtitle, generated_date as created_at
                                   FROM invoices
                                   WHERE invoice_number LIKE :query OR customer_name LIKE :query
                                   LIMIT 5");
             $stmt->execute(['query' => $search_pattern]);
             $search_results = array_merge($search_results, $stmt->fetchAll());
+            }
 
             if (hasPermission('view_users')) {
                 $stmt = $pdo->prepare("SELECT 'user' as type, id, name as title, email as subtitle, created_at
@@ -835,10 +839,10 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
     // Operational dashboard sections ------------------------------------------
     $dashboardWorkOrderModule = dashboardModuleMeta('workorders');
     $dashboardWorkOrdersPanel = [
-        'available' => !empty($dashboardWorkOrderModule['available']),
+        'available' => permissions_can_view_work_orders() && !empty($dashboardWorkOrderModule['available']),
         'href' => (string) ($dashboardWorkOrderModule['href'] ?? ''),
         'slug' => (string) ($dashboardWorkOrderModule['slug'] ?? ''),
-        'summary' => 'Module detected. Surface live work order queue data here once the workflow is wired.',
+        'summary' => 'Track and manage production job workflows.',
     ];
     $dashboardOpenInvoiceCount = 0;
     $dashboardOverdueInvoiceCount = 0;
@@ -1297,26 +1301,31 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
         ? ((float) ($stats['total_revenue']['val'] ?? 0) / $dashboardProjectBase)
         : 0;
     $dashboardProductivity = $collectionRate;
-    $dashboardHeroCards = [
-        [
+    $dashboardHeroCards = [];
+    if (hasPermission('view_projects')) {
+        $dashboardHeroCards[] = [
             'label' => 'Total Projects',
             'value' => number_format($dashboardProjectCount),
             'icon' => 'briefcase',
             'growth' => $stats['active_projects']['growth'] ?? '0%',
             'meta' => 'Since last month',
             'tone' => 'violet',
-            'target' => hasPermission('view_projects') ? 'wsModalProjects' : 'wsModalPerformance',
-        ],
-        [
+            'target' => 'wsModalProjects',
+        ];
+    }
+    if (hasPermission('view_tasks')) {
+        $dashboardHeroCards[] = [
             'label' => 'Total Tasks',
             'value' => number_format($totalTasksTracked),
             'icon' => 'clipboard-list',
             'growth' => $dashboardOpenTaskCount > 0 ? '+' . number_format($dashboardOpenTaskCount) : '0%',
             'meta' => 'Open work in motion',
             'tone' => 'pink',
-            'target' => hasPermission('view_tasks') ? 'wsModalTasks' : 'wsModalActivity',
-        ],
-        [
+            'target' => 'wsModalTasks',
+        ];
+    }
+    if (hasPermission('view_dashboard_revenue')) {
+        $dashboardHeroCards[] = [
             'label' => 'Avg. Project Earnings',
             'value' => 'MK ' . dashboardCurrency($dashboardAvgProjectEarnings),
             'icon' => 'wallet',
@@ -1324,8 +1333,8 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
             'meta' => 'Since last month',
             'tone' => 'amber',
             'target' => 'wsModalPerformance',
-        ],
-        [
+        ];
+        $dashboardHeroCards[] = [
             'label' => 'Productivity',
             'value' => $dashboardProductivity . '%',
             'icon' => 'trending-up',
@@ -1333,8 +1342,8 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
             'meta' => 'Collection health',
             'tone' => 'green',
             'target' => 'wsModalReports',
-        ],
-    ];
+        ];
+    }
 
     // Calendar / schedule ------------------------------------------------------
     $dashboardCalMonth = trim((string) ($params['cal_month'] ?? $_GET['cal_month'] ?? ''));
@@ -1672,6 +1681,7 @@ function dashboard_fragment_registry(): array
         ],
         'dashboard.hero.metrics' => [
             'view' => 'partials/hero_metrics.php',
+            'permission_any' => ['view_projects', 'view_tasks', 'view_dashboard_revenue'],
         ],
         'dashboard.focus.list' => [
             'view' => 'partials/focus_list.php',
@@ -1681,6 +1691,7 @@ function dashboard_fragment_registry(): array
         ],
         'dashboard.debtors.panel' => [
             'view' => 'partials/debtors_panel.php',
+            'permission_any' => ['view_dashboard_revenue', 'view_invoices'],
         ],
         'dashboard.calendar' => [
             'view' => 'partials/calendar.php',
@@ -1690,12 +1701,15 @@ function dashboard_fragment_registry(): array
         ],
         'dashboard.modal.performance' => [
             'view' => 'partials/modal_performance.php',
+            'permission_any' => ['view_dashboard_revenue', 'view_invoices', 'view_projects', 'view_tasks'],
         ],
         'dashboard.modal.activity' => [
             'view' => 'partials/modal_activity.php',
+            'permission_any' => ['view_projects', 'view_tasks'],
         ],
         'dashboard.modal.reports' => [
             'view' => 'partials/modal_reports.php',
+            'permission_any' => ['view_dashboard_revenue', 'view_estimations', 'view_invoices', 'view_projects', 'view_dispatch'],
         ],
         'dashboard.modal.projects' => [
             'view' => 'partials/modal_projects.php',

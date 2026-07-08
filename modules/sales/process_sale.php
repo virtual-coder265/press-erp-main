@@ -2,13 +2,12 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['manage_sales', 'manage_invoices']);
 require_once __DIR__ . '/../../libs/InvoicePaymentGrMigrator.php';
 
 InvoicePaymentGrMigrator::ensure($pdo);
 
-if ($_SESSION['role'] != 'System Admin' && $_SESSION['role'] != 'Costing') {
-    die("Access Denied.");
-}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header("Location: index.php");

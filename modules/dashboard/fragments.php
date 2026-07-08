@@ -41,6 +41,20 @@ if (!empty($entry['permission']) && !hasPermission($entry['permission'])) {
     echo '<!-- ajax-component: forbidden -->';
     exit;
 }
+if (!empty($entry['permission_any']) && is_array($entry['permission_any'])) {
+    $allowed = false;
+    foreach ($entry['permission_any'] as $permissionSlug) {
+        if (hasPermission((string) $permissionSlug)) {
+            $allowed = true;
+            break;
+        }
+    }
+    if (!$allowed) {
+        http_response_code(403);
+        echo '<!-- ajax-component: forbidden -->';
+        exit;
+    }
+}
 
 $viewPath = __DIR__ . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $entry['view']);
 if (!is_file($viewPath)) {

@@ -20,6 +20,7 @@ checkAuth();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../libs/InvoiceAuditMigrator.php';
 require_once __DIR__ . '/../../libs/InvoicePaymentGrMigrator.php';
+require_once __DIR__ . '/../../includes/work_order_helper.php';
 
 if (function_exists('checkPermission')) {
     checkPermission('manage_invoices');
@@ -27,6 +28,7 @@ if (function_exists('checkPermission')) {
 
 InvoiceAuditMigrator::ensure($pdo);
 InvoicePaymentGrMigrator::ensure($pdo);
+work_order_bootstrap($pdo);
 
 $id = (int) ($_GET['id'] ?? $_POST['id'] ?? 0);
 if ($id <= 0) {
@@ -129,6 +131,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'editor'  => $_SESSION['user_id'] ?? null,
                 'id'      => $id,
             ]);
+
+            $woStmt = $pdo->prepare("SELECT id, status FROM work_orders WHERE invoice_id = ? LIMIT 1");
+            $woStmt->execute([$id]);
+            $linkedWorkOrder = $woStmt->fetch(PDO::FETCH_ASSOC);
+            if ($linkedWorkOrder) {
+                work_order_sync_payment_status($pdo, (int) $linkedWorkOrder['id']);
+                if (($linkedWorkOrder['status'] ?? '') === 'Waiting Payment' && $newPaid > 0) {
+                    $pdo->prepare("
+                        UPDATE work_orders
+                        SET status = 'Ready for Production',
+                            updated_by = ?,
+                            updated_at = NOW()
+                        WHERE id = ?
+                    ")->execute([$_SESSION['user_id'] ?? null, (int) $linkedWorkOrder['id']]);
+
+                    $pdo->prepare("
+                        INSERT INTO production_movements
+                            (work_order_id, movement_type, sender_user_id, remarks)
+                        VALUES (?, 'payment_received', ?, ?)
+                    ")->execute([
+                        (int) $linkedWorkOrder['id'],
+                        $_SESSION['user_id'] ?? null,
+                        'Invoice payment recorded. Work order is now ready for production.',
+                    ]);
+                }
+            }
 
             $pdo->commit();
             $_SESSION['success'] = sprintf('Payment of MK %s recorded.', number_format($amount, 2));

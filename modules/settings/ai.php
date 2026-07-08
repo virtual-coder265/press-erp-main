@@ -49,6 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'ai_enable_projects' => isset($_POST['ai_enable_projects']),
                 'ai_enable_reminders' => isset($_POST['ai_enable_reminders']),
                 'ai_enable_analysis' => isset($_POST['ai_enable_analysis']),
+                'ai_enable_invoices' => isset($_POST['ai_enable_invoices']),
+                'ai_enable_estimations' => isset($_POST['ai_enable_estimations']),
+                'ai_enable_sales' => isset($_POST['ai_enable_sales']),
             ]);
 
             $success = 'AI assistant settings updated successfully.';
@@ -214,7 +217,7 @@ include '../../includes/header.php';
         </div>
 
         <div class="bg-white shadow-md rounded-xl p-6">
-            <h2 class="text-lg font-semibold mb-4 text-gray-800 border-b pb-2">MVP Feature Access</h2>
+            <h2 class="text-lg font-semibold mb-4 text-gray-800 border-b pb-2">Feature Access</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <?php
                 $features = [
@@ -222,6 +225,9 @@ include '../../includes/header.php';
                     'ai_enable_projects' => ['label' => 'Project progress insights', 'key' => 'projects'],
                     'ai_enable_reminders' => ['label' => 'Reminder recommendations', 'key' => 'reminders'],
                     'ai_enable_analysis' => ['label' => 'General analysis and projections', 'key' => 'analysis'],
+                    'ai_enable_invoices' => ['label' => 'Invoice health and collections insights', 'key' => 'invoices'],
+                    'ai_enable_estimations' => ['label' => 'Estimation profitability and conversion insights', 'key' => 'estimations'],
+                    'ai_enable_sales' => ['label' => 'Sales performance and revenue insights', 'key' => 'sales'],
                 ];
                 ?>
                 <?php foreach ($features as $inputName => $meta): ?>

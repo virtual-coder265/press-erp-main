@@ -95,6 +95,7 @@ function dashboard_fetch_summary_stats(PDO $pdo, int $viewerUserId = 0): array
     $today = dashboard_day_window(0);
 
     try {
+        if (hasPermission('view_estimations')) {
         $estimationStmt = $pdo->prepare("
             SELECT
                 COALESCE(SUM(CASE WHEN status != 'Draft' THEN 1 ELSE 0 END), 0) AS total_count,
@@ -115,7 +116,9 @@ function dashboard_fetch_summary_stats(PDO $pdo, int $viewerUserId = 0): array
             'previous' => (int) ($estimationRow['prev_count'] ?? 0),
             'growth' => dashboard_calculate_mom($estimationRow['current_count'] ?? 0, $estimationRow['prev_count'] ?? 0),
         ];
+        }
 
+        if (hasPermission('view_invoices') || hasPermission('view_dashboard_revenue')) {
         $invoiceStmt = $pdo->prepare("
             SELECT
                 COUNT(*) AS total_invoices,
@@ -198,7 +201,9 @@ function dashboard_fetch_summary_stats(PDO $pdo, int $viewerUserId = 0): array
         $stats['collected']['current'] = (float) ($paymentRow['current_collected'] ?? 0);
         $stats['collected']['previous'] = (float) ($paymentRow['prev_collected'] ?? 0);
         $stats['collected']['growth'] = dashboard_calculate_mom($paymentRow['current_collected'] ?? 0, $paymentRow['prev_collected'] ?? 0);
+        }
 
+        if (hasPermission('view_projects')) {
         $visDash = project_visibility_sql_where_for_projects('p', $viewerUserId, $pdo);
         $visDashClause = $visDash['clause'];
 
@@ -226,7 +231,9 @@ function dashboard_fetch_summary_stats(PDO $pdo, int $viewerUserId = 0): array
             'previous' => (int) ($projectRow['prev_active'] ?? 0),
             'growth' => dashboard_calculate_mom($projectRow['current_active'] ?? 0, $projectRow['prev_active'] ?? 0),
         ];
+        }
 
+        if (hasPermission('view_dispatch')) {
         $dispatchStmt = $pdo->prepare("
             SELECT
                 COALESCE(SUM(CASE WHEN created_at >= ? AND created_at < ? THEN 1 ELSE 0 END), 0) AS today_count,
@@ -249,7 +256,9 @@ function dashboard_fetch_summary_stats(PDO $pdo, int $viewerUserId = 0): array
             'previous' => (int) ($dispatchRow['prev_month_count'] ?? 0),
             'growth' => dashboard_calculate_mom($dispatchRow['current_month_count'] ?? 0, $dispatchRow['prev_month_count'] ?? 0),
         ];
+        }
 
+        if (hasPermission('view_users')) {
         $userStmt = $pdo->prepare("
             SELECT
                 COUNT(*) AS total_users,
@@ -270,6 +279,7 @@ function dashboard_fetch_summary_stats(PDO $pdo, int $viewerUserId = 0): array
             'previous' => (int) ($userRow['prev_users'] ?? 0),
             'growth' => dashboard_calculate_mom($userRow['current_users'] ?? 0, $userRow['prev_users'] ?? 0),
         ];
+        }
     } catch (Throwable $exception) {
         return $stats;
     }

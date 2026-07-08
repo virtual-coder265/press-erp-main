@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['manage_dispatch']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ids = $_POST['ids'] ?? [];

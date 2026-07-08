@@ -2,11 +2,9 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['manage_materials']);
 
-// Role Check
-if ($_SESSION['role'] != 'System Admin' && $_SESSION['role'] != 'Procurement' && $_SESSION['role'] != 'Costing') {
-    die("Access Denied. You do not have permission to perform this action.");
-}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';

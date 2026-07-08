@@ -2,10 +2,9 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['manage_products']);
 
-if ($_SESSION['role'] != 'System Admin' && $_SESSION['role'] != 'Costing' && $_SESSION['role'] != 'Procurement') {
-    die("Access Denied. You do not have permission to view this page.");
-}
 
 $categories = $pdo->query("SELECT * FROM product_categories ORDER BY name")->fetchAll();
 

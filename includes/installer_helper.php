@@ -9,6 +9,7 @@ if (!defined('ROOT_PATH')) {
 }
 
 require_once __DIR__ . '/settings_helper.php';
+require_once __DIR__ . '/work_order_helper.php';
 
 if (!function_exists('installer_public_route')) {
     function installer_public_route(): string
@@ -1058,6 +1059,9 @@ if (!function_exists('installer_apply_support_schema')) {
         $changes = array_merge($changes, installer_ensure_user_compatibility($pdo));
         $changes = array_merge($changes, installer_ensure_notifications_schema($pdo));
         $changes = array_merge($changes, installer_ensure_audit_schema($pdo));
+        require_once ROOT_PATH . 'includes' . DIRECTORY_SEPARATOR . 'permissions_helper.php';
+        $changes = array_merge($changes, permissions_ensure_catalog($pdo));
+        $changes = array_merge($changes, work_order_ensure_schema($pdo));
 
         return $changes;
     }

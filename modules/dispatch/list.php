@@ -2,8 +2,12 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['view_dispatch']);
+require_once __DIR__ . '/../../includes/work_order_helper.php';
 
 include '../../includes/header.php';
+work_order_bootstrap($pdo);
 
 // Search and filter functionality
 $search_query = $_GET['search'] ?? '';
@@ -11,10 +15,11 @@ $date_from = $_GET['date_from'] ?? '';
 $date_to = $_GET['date_to'] ?? '';
 $work_order_filter = $_GET['work_order'] ?? '';
 
-$query = "SELECT d.*, u1.name as authorised_dispatcher_name, u2.name as created_by_name 
+$query = "SELECT d.*, u1.name as authorised_dispatcher_name, u2.name as created_by_name, wo.status AS work_order_status
           FROM dispatch_register d 
           LEFT JOIN users u1 ON d.authorised_dispatcher_id = u1.id 
           LEFT JOIN users u2 ON d.created_by = u2.id 
+          LEFT JOIN work_orders wo ON d.work_order_id = wo.id
           WHERE 1=1";
 
 $params = [];
@@ -187,6 +192,9 @@ if ($import_errors) {
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
                         <p class="text-sm font-semibold text-gray-900 break-words"><?php echo htmlspecialchars($dispatch['work_order_number'] ?: 'No work order'); ?></p>
+                        <?php if (!empty($dispatch['work_order_status'])): ?>
+                            <p class="text-xs text-indigo-600 mt-1"><?php echo htmlspecialchars($dispatch['work_order_status']); ?></p>
+                        <?php endif; ?>
                         <p class="text-xs text-gray-500 mt-1"><?php echo date('M d, Y', strtotime($dispatch['date_in'])); ?> at <?php echo date('h:i A', strtotime($dispatch['created_at'])); ?></p>
                     </div>
                     <?php if ($dispatch['date_out']): ?>
@@ -286,6 +294,9 @@ if ($import_errors) {
                             <div class="text-xs font-normal text-gray-500 lg:hidden mt-0.5">
                                 <?php echo htmlspecialchars($dispatch['ministry_department']); ?>
                             </div>
+                            <?php if (!empty($dispatch['work_order_status'])): ?>
+                                <div class="text-xs font-normal text-indigo-600 mt-0.5"><?php echo htmlspecialchars($dispatch['work_order_status']); ?></div>
+                            <?php endif; ?>
                         </td>
                         <td class="px-6 py-4 text-sm text-gray-500 md:table-cell hidden">
                             <div class="truncate max-w-xs" title="<?php echo htmlspecialchars($dispatch['ministry_department']); ?>">

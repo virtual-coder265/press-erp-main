@@ -1499,11 +1499,28 @@ textarea:focus {
 
 @media (max-width: 1023px) {
     .app-topbar {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "context actions"
+            "search search";
+        align-items: center;
+        gap: 0.75rem 1rem;
+    }
+
+    .topbar-context {
+        grid-area: context;
+        min-width: 0;
+    }
+
+    .topbar-search {
+        grid-area: search;
+        width: 100%;
     }
 
     .topbar-actions {
-        justify-content: space-between;
+        grid-area: actions;
+        justify-content: flex-end;
+        flex-shrink: 0;
     }
 }
 
@@ -1726,4 +1743,13 @@ textarea:focus {
 
 .display-none {
     display: none !important;
+}
+
+.wo-workspace-filters input,
+.wo-workspace-filters select {
+    font-size: 0.875rem;
+}
+
+.wo-workspace-filters button {
+    white-space: nowrap;
 }

@@ -71,7 +71,7 @@
             <header class="ai-assistant-header">
                 <div>
                     <h3 class="ai-assistant-title">AI Assistant</h3>
-                    <p class="ai-assistant-subtitle">Tasks, projects, reminders, and analysis guidance.</p>
+                    <p class="ai-assistant-subtitle">Ask a question and the assistant will choose the right ERP context automatically.</p>
                 </div>
                 <button type="button" id="aiAssistantClose" class="ai-assistant-close" aria-label="Close assistant">
                     <i class="material-icons">close</i>
@@ -79,16 +79,6 @@
             </header>
 
             <div id="aiAssistantMessages" class="ai-assistant-messages" role="log" aria-live="polite"></div>
-
-            <div class="ai-assistant-feature-row">
-                <label for="aiAssistantFeature" class="sr-only">Assistant focus</label>
-                <select id="aiAssistantFeature" class="ai-assistant-feature-select">
-                    <?php if (!empty($assistantFeatureConfig['analysis'])): ?><option value="analysis">General analysis</option><?php endif; ?>
-                    <?php if (!empty($assistantFeatureConfig['tasks'])): ?><option value="tasks">Tasks</option><?php endif; ?>
-                    <?php if (!empty($assistantFeatureConfig['projects'])): ?><option value="projects">Projects</option><?php endif; ?>
-                    <?php if (!empty($assistantFeatureConfig['reminders'])): ?><option value="reminders">Reminders</option><?php endif; ?>
-                </select>
-            </div>
 
             <form id="aiAssistantForm" class="ai-assistant-form">
                 <textarea id="aiAssistantInput" rows="3" maxlength="2500" placeholder="Ask for insight, priority suggestions, or projections..." required></textarea>

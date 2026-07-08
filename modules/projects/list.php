@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['view_projects']);
 require_once __DIR__ . '/../../includes/team_invitation_helper.php';
 /**
  * Check if the communication module is available

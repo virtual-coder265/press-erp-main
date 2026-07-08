@@ -3,6 +3,8 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['view_projects', 'view_tasks']);
 require_once __DIR__ . '/../../includes/team_invitation_helper.php';
 
 $userId = (int) ($_SESSION['user_id'] ?? 0);

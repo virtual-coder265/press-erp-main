@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['view_tasks']);
 require_once __DIR__ . '/../../includes/task_management_helper.php';
 require_once __DIR__ . '/../../includes/project_visibility_helper.php';
 

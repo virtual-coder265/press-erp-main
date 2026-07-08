@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/branding_helper.php';
+require_once __DIR__ . '/permissions_helper.php';
 $currentPath = $_SERVER['PHP_SELF'] ?? '';
 $role = $_SESSION['role'] ?? '';
 $userName = $_SESSION['user_name'] ?? 'User';
@@ -36,9 +37,32 @@ $isCollaboration = $isCurrentPath('modules/collaboration');
 $isProjectsTasks = $isCurrentPath('modules/projects') || $isCurrentPath('modules/tasks') || $isCurrentPath('modules/files') || $isCollaboration;
 $isSettings = $isCurrentPath('modules/settings');
 $isDispatch = $isCurrentPath('modules/dispatch');
+$isWorkOrders = $isCurrentPath('modules/work_orders');
+$isWorkOrderWorkspace = $isCurrentPath('modules/work_orders/workspace')
+    || $isCurrentPath('modules/work_orders/department_edit')
+    || $isCurrentPath('modules/work_orders/handoff')
+    || $isCurrentPath('modules/work_orders/receive');
+$productionDepartments = [];
+if ($isWorkOrders && isset($pdo) && function_exists('hasPermission') && (hasPermission('manage_production_queues') || hasPermission('manage_work_orders'))) {
+    require_once __DIR__ . '/work_order_helper.php';
+    work_order_bootstrap($pdo);
+    $productionDepartments = work_order_safe_fetch($pdo, "SELECT slug, name FROM production_departments WHERE is_active = 1 ORDER BY default_order ASC");
+}
 $isAdmin = $isCurrentPath('modules/admin');
 $isAdminAudit = $isCurrentPath('modules/admin/audit_center');
 $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
+$isAdminDataReset = $isCurrentPath('modules/admin/data_reset');
+$canViewProducts = hasPermission('view_products');
+$canViewServices = hasPermission('view_services');
+$canViewProjects = hasPermission('view_projects');
+$canViewTasks = hasPermission('view_tasks');
+$canViewDispatch = hasPermission('view_dispatch');
+$canViewWorkOrders = permissions_can_view_work_orders();
+$canManageWorkOrders = hasPermission('manage_work_orders');
+$canManageProductionQueues = hasPermission('manage_production_queues');
+$canViewWorkOrderReports = hasPermission('view_work_order_reports');
+$canViewHr = hasPermission('view_users') || hasPermission('view_departments') || hasPermission('view_branches') || hasPermission('view_roles');
+$canViewOperations = permissions_can_view_operations();
 ?>
 
 <aside id="sidebar" class="app-sidebar flex flex-col h-screen fixed md:sticky top-0 left-0 z-40 md:z-auto">
@@ -75,7 +99,7 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
             </a>
         </div>
 
-        <?php if (hasPermission('view_estimations') || hasPermission('view_invoices') || hasPermission('view_dashboard_revenue')): ?>
+        <?php if (permissions_can_view_commercial()): ?>
             <div class="nav-group">
                 <p class="nav-group-title">Commercial</p>
 
@@ -88,12 +112,14 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                         <i class="text-sm nav-chevron transition-transform duration-200 <?php echo $isEstimations ? 'rotate-180' : ''; ?>" data-lucide="chevron-down" aria-hidden="true"></i>
                     </button>
                     <div id="estimations-sub" class="sidebar-submenu <?php echo $isEstimations ? '' : 'hidden'; ?>">
-                        <a href="<?php echo BASE_URL; ?>modules/estimations/create" class="<?php echo $sublinkClass($isCurrentPath('modules/estimations/create')); ?>">New estimation</a>
+                        <?php if (hasPermission('manage_estimations')): ?>
+                            <a href="<?php echo BASE_URL; ?>modules/estimations/create" class="<?php echo $sublinkClass($isCurrentPath('modules/estimations/create')); ?>">New estimation</a>
+                        <?php endif; ?>
                         <a href="<?php echo BASE_URL; ?>modules/estimations/list" class="<?php echo $sublinkClass($isCurrentPath('modules/estimations/list') || $isCurrentPath('modules/estimations/view') || $isCurrentPath('modules/estimations/status_dashboard')); ?>">All estimations</a>
                     </div>
                 <?php endif; ?>
 
-                <?php if (hasPermission('view_invoices') || hasPermission('view_dashboard_revenue')): ?>
+                <?php if (hasPermission('view_sales') || hasPermission('view_invoices') || hasPermission('view_dashboard_revenue')): ?>
                     <button type="button" data-sidebar-toggle="sales-sub" aria-expanded="<?php echo $isSales ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isSales); ?>">
                         <span class="sidebar-link-group">
                             <span class="sidebar-icon-wrap"><i data-lucide="wallet" aria-hidden="true"></i></span>
@@ -103,7 +129,9 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                     </button>
                     <div id="sales-sub" class="sidebar-submenu <?php echo $isSales ? '' : 'hidden'; ?>">
                         <a href="<?php echo BASE_URL; ?>modules/sales/index" class="<?php echo $sublinkClass($isCurrentPath('modules/sales/index')); ?>">Overview</a>
-                        <a href="<?php echo BASE_URL; ?>modules/sales/record_sale" class="<?php echo $sublinkClass($isCurrentPath('modules/sales/record_sale')); ?>">Record sale</a>
+                        <?php if (hasPermission('manage_sales') || hasPermission('manage_invoices')): ?>
+                            <a href="<?php echo BASE_URL; ?>modules/sales/record_sale" class="<?php echo $sublinkClass($isCurrentPath('modules/sales/record_sale')); ?>">Record sale</a>
+                        <?php endif; ?>
                     </div>
 
                     <button type="button" data-sidebar-toggle="invoices-sub" aria-expanded="<?php echo $isInvoices ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isInvoices); ?>">
@@ -114,13 +142,18 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                         <i class="text-sm nav-chevron transition-transform duration-200 <?php echo $isInvoices ? 'rotate-180' : ''; ?>" data-lucide="chevron-down" aria-hidden="true"></i>
                     </button>
                     <div id="invoices-sub" class="sidebar-submenu <?php echo $isInvoices ? '' : 'hidden'; ?>">
-                        <a href="<?php echo BASE_URL; ?>modules/invoices/create" class="<?php echo $sublinkClass($isCurrentPath('modules/invoices/create')); ?>">Create invoice</a>
-                        <a href="<?php echo BASE_URL; ?>modules/invoices/list" class="<?php echo $sublinkClass($isCurrentPath('modules/invoices/list') || $isCurrentPath('modules/invoices/view')); ?>">Invoice library</a>
+                        <?php if (hasPermission('manage_invoices')): ?>
+                            <a href="<?php echo BASE_URL; ?>modules/invoices/create" class="<?php echo $sublinkClass($isCurrentPath('modules/invoices/create')); ?>">Create invoice</a>
+                        <?php endif; ?>
+                        <?php if (hasPermission('view_invoices')): ?>
+                            <a href="<?php echo BASE_URL; ?>modules/invoices/list" class="<?php echo $sublinkClass($isCurrentPath('modules/invoices/list') || $isCurrentPath('modules/invoices/view')); ?>">Invoice library</a>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
 
+        <?php if ($canViewOperations): ?>
         <div class="nav-group">
             <p class="nav-group-title">Operations</p>
 
@@ -138,6 +171,7 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                 </div>
             <?php endif; ?>
 
+            <?php if ($canViewProducts || $canViewServices): ?>
             <button type="button" data-sidebar-toggle="products-services-sub" aria-expanded="<?php echo $isProductsServices ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isProductsServices); ?>">
                 <span class="sidebar-link-group">
                     <span class="sidebar-icon-wrap"><i data-lucide="layers" aria-hidden="true"></i></span>
@@ -146,10 +180,16 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                 <i class="text-sm nav-chevron transition-transform duration-200 <?php echo $isProductsServices ? 'rotate-180' : ''; ?>" data-lucide="chevron-down" aria-hidden="true"></i>
             </button>
             <div id="products-services-sub" class="sidebar-submenu <?php echo $isProductsServices ? '' : 'hidden'; ?>">
-                <a href="<?php echo BASE_URL; ?>modules/products/index" class="<?php echo $sublinkClass($isCurrentPath('modules/products')); ?>">Products</a>
-                <a href="<?php echo BASE_URL; ?>modules/services/index" class="<?php echo $sublinkClass($isCurrentPath('modules/services')); ?>">Services</a>
+                <?php if ($canViewProducts): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/products/index" class="<?php echo $sublinkClass($isCurrentPath('modules/products')); ?>">Products</a>
+                <?php endif; ?>
+                <?php if ($canViewServices): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/services/index" class="<?php echo $sublinkClass($isCurrentPath('modules/services')); ?>">Services</a>
+                <?php endif; ?>
             </div>
+            <?php endif; ?>
 
+            <?php if ($canViewProjects || $canViewTasks): ?>
             <button type="button" data-sidebar-toggle="projects-sub" aria-expanded="<?php echo $isProjectsTasks ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isProjectsTasks); ?>">
                 <span class="sidebar-link-group">
                     <span class="sidebar-icon-wrap"><i data-lucide="folder" aria-hidden="true"></i></span>
@@ -158,9 +198,15 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                 <i class="text-sm nav-chevron transition-transform duration-200 <?php echo $isProjectsTasks ? 'rotate-180' : ''; ?>" data-lucide="chevron-down" aria-hidden="true"></i>
             </button>
             <div id="projects-sub" class="sidebar-submenu <?php echo $isProjectsTasks ? '' : 'hidden'; ?>">
-                <a href="<?php echo BASE_URL; ?>modules/projects/list" class="<?php echo $sublinkClass($isCurrentPath('modules/projects')); ?>">Projects</a>
-                <a href="<?php echo BASE_URL; ?>modules/tasks/list" class="<?php echo $sublinkClass($isCurrentPath('modules/tasks')); ?>">Tasks</a>
-                <a href="<?php echo BASE_URL; ?>modules/collaboration/invitations.php" class="<?php echo $sublinkClass($isCollaboration); ?>">Team invitations</a>
+                <?php if ($canViewProjects): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/projects/list" class="<?php echo $sublinkClass($isCurrentPath('modules/projects')); ?>">Projects</a>
+                <?php endif; ?>
+                <?php if ($canViewTasks): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/tasks/list" class="<?php echo $sublinkClass($isCurrentPath('modules/tasks')); ?>">Tasks</a>
+                <?php endif; ?>
+                <?php if ($canViewProjects || $canViewTasks): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/collaboration/invitations.php" class="<?php echo $sublinkClass($isCollaboration); ?>">Team invitations</a>
+                <?php endif; ?>
                 <?php
                 require_once __DIR__ . '/file_management_helper.php';
                 if (file_hub_user_can_view()):
@@ -168,26 +214,64 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                     <a href="<?php echo BASE_URL; ?>modules/files/index" class="<?php echo $sublinkClass($isCurrentPath('modules/files')); ?>">Files</a>
                 <?php endif; ?>
             </div>
+            <?php endif; ?>
 
+            <?php if ($canViewDispatch): ?>
             <a href="<?php echo BASE_URL; ?>modules/dispatch/list" class="<?php echo $linkClass($isDispatch); ?>">
                 <span class="sidebar-link-group">
                     <span class="sidebar-icon-wrap"><i data-lucide="truck" aria-hidden="true"></i></span>
                     <span class="nav-text">Dispatch</span>
                 </span>
             </a>
+            <?php endif; ?>
 
-            <button type="button" class="sidebar-placeholder" onclick="showToast('Work orders module is coming soon.', 'info');">
+            <?php if ($canViewWorkOrders): ?>
+            <button type="button" data-sidebar-toggle="work-orders-sub" aria-expanded="<?php echo $isWorkOrders ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isWorkOrders); ?>">
                 <span class="sidebar-link-group">
                     <span class="sidebar-icon-wrap"><i data-lucide="clipboard-list" aria-hidden="true"></i></span>
                     <span class="nav-text">Work orders</span>
                 </span>
+                <i class="text-sm nav-chevron transition-transform duration-200 <?php echo $isWorkOrders ? 'rotate-180' : ''; ?>" data-lucide="chevron-down" aria-hidden="true"></i>
             </button>
+            <div id="work-orders-sub" class="sidebar-submenu <?php echo $isWorkOrders ? '' : 'hidden'; ?>">
+                <?php if ($canViewWorkOrderReports || $canManageWorkOrders || hasPermission('view_work_orders')): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/work_orders/dashboard" class="<?php echo $sublinkClass($isCurrentPath('modules/work_orders/dashboard')); ?>">Dashboard</a>
+                <?php endif; ?>
+                <?php if (hasPermission('view_work_orders') || $canManageWorkOrders): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/work_orders/list" class="<?php echo $sublinkClass($isCurrentPath('modules/work_orders/list') || $isCurrentPath('modules/work_orders/view')); ?>">Work orders</a>
+                    <a href="<?php echo BASE_URL; ?>modules/work_orders/timeline" class="<?php echo $sublinkClass($isCurrentPath('modules/work_orders/timeline')); ?>">Production timeline</a>
+                    <a href="<?php echo BASE_URL; ?>modules/work_orders/dispatch" class="<?php echo $sublinkClass($isCurrentPath('modules/work_orders/dispatch')); ?>">Dispatch</a>
+                <?php endif; ?>
+                <?php if ($canManageProductionQueues || $canManageWorkOrders): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/work_orders/workspace?department=origination" class="<?php echo $sublinkClass($isWorkOrderWorkspace); ?>">Production workspaces</a>
+                <?php
+                $workspaceDepartment = trim((string) ($_GET['department'] ?? ''));
+                foreach ($productionDepartments as $productionDepartment):
+                    $isDeptWorkspace = ($isCurrentPath('modules/work_orders/workspace')
+                        || $isCurrentPath('modules/work_orders/department_edit')
+                        || $isCurrentPath('modules/work_orders/handoff')
+                        || $isCurrentPath('modules/work_orders/receive'))
+                        && $workspaceDepartment === $productionDepartment['slug'];
+                ?>
+                    <a href="<?php echo BASE_URL; ?>modules/work_orders/workspace?department=<?php echo urlencode($productionDepartment['slug']); ?>"
+                        class="<?php echo $sublinkClass($isDeptWorkspace); ?>">
+                        <?php echo htmlspecialchars($productionDepartment['name']); ?>
+                    </a>
+                <?php endforeach; ?>
+                <?php endif; ?>
+                <?php if ($canViewWorkOrderReports || $canManageWorkOrders): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/work_orders/reports" class="<?php echo $sublinkClass($isCurrentPath('modules/work_orders/reports')); ?>">Reports</a>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
         </div>
+        <?php endif; ?>
 
-        <?php if (hasPermission('view_users') || hasPermission('manage_settings')): ?>
+        <?php if ($canViewHr || hasPermission('manage_settings') || hasPermission('view_audit_logs') || hasPermission('view_system_health')): ?>
             <div class="nav-group">
                 <p class="nav-group-title">Administration</p>
 
+                <?php if ($canViewHr): ?>
                 <button type="button" data-sidebar-toggle="hr-sub" aria-expanded="<?php echo $isHr ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isHr); ?>">
                     <span class="sidebar-link-group">
                         <span class="sidebar-icon-wrap"><i data-lucide="id-card" aria-hidden="true"></i></span>
@@ -196,12 +280,22 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                     <i class="text-sm nav-chevron transition-transform duration-200 <?php echo $isHr ? 'rotate-180' : ''; ?>" data-lucide="chevron-down" aria-hidden="true"></i>
                 </button>
                 <div id="hr-sub" class="sidebar-submenu <?php echo $isHr ? '' : 'hidden'; ?>">
-                    <a href="<?php echo BASE_URL; ?>modules/hr/users/list" class="<?php echo $sublinkClass($isCurrentPath('modules/hr/users')); ?>">Users</a>
-                    <a href="<?php echo BASE_URL; ?>modules/hr/departments/list" class="<?php echo $sublinkClass($isCurrentPath('modules/hr/departments')); ?>">Departments</a>
-                    <a href="<?php echo BASE_URL; ?>modules/hr/branches/list" class="<?php echo $sublinkClass($isCurrentPath('modules/hr/branches')); ?>">Branches</a>
-                    <a href="<?php echo BASE_URL; ?>modules/hr/roles/list" class="<?php echo $sublinkClass($isCurrentPath('modules/hr/roles')); ?>">Roles and permissions</a>
+                    <?php if (hasPermission('view_users')): ?>
+                        <a href="<?php echo BASE_URL; ?>modules/hr/users/list" class="<?php echo $sublinkClass($isCurrentPath('modules/hr/users')); ?>">Users</a>
+                    <?php endif; ?>
+                    <?php if (hasPermission('view_departments')): ?>
+                        <a href="<?php echo BASE_URL; ?>modules/hr/departments/list" class="<?php echo $sublinkClass($isCurrentPath('modules/hr/departments')); ?>">Departments</a>
+                    <?php endif; ?>
+                    <?php if (hasPermission('view_branches')): ?>
+                        <a href="<?php echo BASE_URL; ?>modules/hr/branches/list" class="<?php echo $sublinkClass($isCurrentPath('modules/hr/branches')); ?>">Branches</a>
+                    <?php endif; ?>
+                    <?php if (hasPermission('view_roles')): ?>
+                        <a href="<?php echo BASE_URL; ?>modules/hr/roles/list" class="<?php echo $sublinkClass($isCurrentPath('modules/hr/roles')); ?>">Roles and permissions</a>
+                    <?php endif; ?>
                 </div>
+                <?php endif; ?>
 
+                <?php if (hasPermission('manage_settings')): ?>
                 <button type="button" data-sidebar-toggle="settings-sub" aria-expanded="<?php echo $isSettings ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isSettings); ?>">
                     <span class="sidebar-link-group">
                         <span class="sidebar-icon-wrap"><i data-lucide="settings" aria-hidden="true"></i></span>
@@ -218,6 +312,7 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                     <a href="<?php echo BASE_URL; ?>modules/settings/notifications" class="<?php echo $sublinkClass($isCurrentPath('modules/settings/notifications')); ?>">Notification configuration</a>
                     <a href="<?php echo BASE_URL; ?>modules/settings/hero_weather" class="<?php echo $sublinkClass($isCurrentPath('modules/settings/hero_weather')); ?>">Hero weather backgrounds</a>
                 </div>
+                <?php endif; ?>
 
                 <?php if (($_SESSION['role'] ?? '') === 'System Admin' || hasPermission('manage_settings') || hasPermission('view_audit_logs') || hasPermission('view_system_health')): ?>
                     <button type="button" data-sidebar-toggle="admin-sub" aria-expanded="<?php echo $isAdmin ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isAdmin); ?>">
@@ -230,6 +325,7 @@ $isAdminLoginSlides = $isCurrentPath('modules/admin/login_slides');
                     <div id="admin-sub" class="sidebar-submenu <?php echo $isAdmin ? '' : 'hidden'; ?>">
                         <a href="<?php echo BASE_URL; ?>modules/admin/audit_center" class="<?php echo $sublinkClass($isAdminAudit); ?>">Audit and security</a>
                         <?php if (($_SESSION['role'] ?? '') === 'System Admin' || hasPermission('manage_settings')): ?>
+                            <a href="<?php echo BASE_URL; ?>modules/admin/data_reset" class="<?php echo $sublinkClass($isAdminDataReset); ?>">Data reset utility</a>
                             <a href="<?php echo BASE_URL; ?>modules/admin/login_slides" class="<?php echo $sublinkClass($isAdminLoginSlides); ?>">Login background slides</a>
                         <?php endif; ?>
                     </div>

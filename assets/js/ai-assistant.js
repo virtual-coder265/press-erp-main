@@ -11,12 +11,11 @@ document.addEventListener('DOMContentLoaded', function () {
     const form = document.getElementById('aiAssistantForm');
     const input = document.getElementById('aiAssistantInput');
     const sendBtn = document.getElementById('aiAssistantSend');
-    const featureSelect = document.getElementById('aiAssistantFeature');
     const messages = document.getElementById('aiAssistantMessages');
     const toggleIcon = toggle ? toggle.querySelector('.material-icons') : null;
     let isSubmitting = false;
 
-    if (!root || !toggle || !panel || !closeBtn || !form || !input || !sendBtn || !featureSelect || !messages) {
+    if (!root || !toggle || !panel || !closeBtn || !form || !input || !sendBtn || !messages) {
         return;
     }
 
@@ -88,7 +87,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const message = String(input.value || '').trim();
-        const feature = String(featureSelect.value || 'analysis').trim();
 
         if (!message) {
             return;
@@ -109,8 +107,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'X-CSRF-Token': config.csrfToken
             },
             body: JSON.stringify({
-                message: message,
-                feature: feature
+                message: message
             })
         })
             .then(function (response) {
@@ -140,5 +137,5 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     });
 
-    appendMessage('assistant', 'How can I help with tasks, projects, reminders, or analysis today?');
+    appendMessage('assistant', 'Ask about tasks, projects, reminders, invoices, estimations, sales, or general operations and I will choose the right context.');
 });

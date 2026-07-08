@@ -2,7 +2,10 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['manage_dispatch']);
 require_once __DIR__ . '/../../includes/upload_helper.php';
+require_once __DIR__ . '/../../includes/work_order_helper.php';
 
 // Check if PhpSpreadsheet is available, if not, use basic CSV handling
 $use_phpspreadsheet = false;
@@ -15,6 +18,7 @@ $errors = [];
 $success_count = 0;
 $skip_count = 0;
 $error_rows = [];
+work_order_bootstrap($pdo);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['import_file'])) {
     $file = $_FILES['import_file'];
@@ -149,9 +153,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['import_file'])) {
                         
                         // Insert record
                         try {
-                            $stmt = $pdo->prepare("INSERT INTO dispatch_register (work_order_number, date_in, ministry_department, job_description, remarks, quantity, date_out, delivery_note_number, authorised_dispatcher_id, created_by) 
-                                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                            $linkedWorkOrderId = null;
+                            if (!empty($work_order_number)) {
+                                $woStmt = $pdo->prepare("SELECT id FROM work_orders WHERE work_order_number = ? LIMIT 1");
+                                $woStmt->execute([$work_order_number]);
+                                $linkedWorkOrderId = $woStmt->fetchColumn() ?: null;
+                            }
+
+                            $stmt = $pdo->prepare("INSERT INTO dispatch_register (work_order_id, work_order_number, date_in, ministry_department, job_description, remarks, quantity, date_out, delivery_note_number, authorised_dispatcher_id, created_by) 
+                                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                             $stmt->execute([
+                                $linkedWorkOrderId ?: null,
                                 $work_order_number ?: null,
                                 $date_in_parsed,
                                 $ministry_department,

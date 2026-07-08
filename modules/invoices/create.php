@@ -22,13 +22,8 @@ checkAuth();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
 require_once __DIR__ . '/../../libs/InvoiceAuditMigrator.php';
-
-// Role check (legacy)
-if (!in_array($_SESSION['role'] ?? '', ['System Admin', 'Costing'], true)) {
-    if (!function_exists('hasPermission') || !hasPermission('manage_invoices')) {
-        die('Access Denied.');
-    }
-}
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['manage_invoices']);
 
 EstimationAuditMigrator::ensure($pdo);
 InvoiceAuditMigrator::ensure($pdo);

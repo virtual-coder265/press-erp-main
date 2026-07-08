@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['view_estimations']);
 
 $id = $_GET['id'] ?? 0;
 if (!$id)

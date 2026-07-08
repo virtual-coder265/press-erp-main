@@ -33,9 +33,8 @@ if (is_string($rawInput) && trim($rawInput) !== '') {
 }
 
 $message = trim((string) ($payload['message'] ?? ($_POST['message'] ?? '')));
-$feature = trim((string) ($payload['feature'] ?? ($_POST['feature'] ?? '')));
 
-$result = ai_chat($pdo, (int) ($_SESSION['user_id'] ?? 0), $message, $feature);
+$result = ai_chat($pdo, (int) ($_SESSION['user_id'] ?? 0), $message);
 $statusCode = (int) ($result['status_code'] ?? 200);
 unset($result['status_code']);
 

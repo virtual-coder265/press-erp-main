@@ -2,11 +2,8 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
-
-// Role Check
-if ($_SESSION['role'] != 'System Admin' && $_SESSION['role'] != 'Procurement' && $_SESSION['role'] != 'Costing') {
-    die("Access Denied. You do not have permission to view this page.");
-}
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['view_materials']);
 
 include '../../includes/header.php';
 

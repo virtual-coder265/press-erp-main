@@ -4242,11 +4242,11 @@ $useLegacyDashboardShell = false;
                         <div class="dashboard-ops-panel-head">
                             <div>
                                 <h2>Work Orders</h2>
-                                <p>Shown only when the module is available.</p>
+                                <p>View and manage production job workflows.</p>
                             </div>
                             <?php if (!empty($dashboardWorkOrdersPanel['href'])): ?>
                                 <a href="<?php echo htmlspecialchars($dashboardWorkOrdersPanel['href']); ?>" class="dashboard-ops-link">
-                                    Open module
+                                    Open Work Orders
                                     <i data-lucide="arrow-up-right" aria-hidden="true"></i>
                                 </a>
                             <?php endif; ?>
@@ -4255,7 +4255,7 @@ $useLegacyDashboardShell = false;
                             <span class="dashboard-ops-placeholder-icon">
                                 <i data-lucide="briefcase" aria-hidden="true"></i>
                             </span>
-                            <strong>Work order workspace detected</strong>
+                            <strong>Worrk Oders can be viewed here</strong>
                             <p><?php echo htmlspecialchars($dashboardWorkOrdersPanel['summary']); ?></p>
                         </div>
                     </div>
@@ -4268,7 +4268,7 @@ $useLegacyDashboardShell = false;
                         <div class="dashboard-ops-panel-head">
                             <div>
                                 <h2>Financial Summary (MTD)</h2>
-                                <p>Core commercial numbers for the current month.</p>
+                                <p>Financial summary for the current month.</p>
                             </div>
                             <?php if ($dashboardFinanceHref !== '#'): ?>
                                 <a href="<?php echo htmlspecialchars($dashboardFinanceHref); ?>" class="dashboard-ops-link">

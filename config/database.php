@@ -25,7 +25,13 @@ try {
     $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
 
     require_once __DIR__ . '/../includes/settings_helper.php';
+    require_once __DIR__ . '/../includes/permissions_helper.php';
     require_once __DIR__ . '/../libs/AuditLogger.php';
+
+    if (php_sapi_name() !== 'cli' && empty($GLOBALS['_permissions_catalog_synced'])) {
+        permissions_ensure_catalog($pdo);
+        $GLOBALS['_permissions_catalog_synced'] = true;
+    }
 
     if (php_sapi_name() !== 'cli') {
         $auditLogger = new AuditLogger($pdo);

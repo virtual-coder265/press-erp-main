@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/permissions_helper.php';
+permissions_require_one_of(['manage_estimations']);
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
 
 EstimationAuditMigrator::ensure($pdo);
