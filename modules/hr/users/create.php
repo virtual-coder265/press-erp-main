@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../../config/database.php';
+require_once __DIR__ . '/../../../includes/notification_preferences_helper.php';
 require_once __DIR__ . '/_user_guards.php';
 require_once __DIR__ . '/../../../includes/upload_helper.php';
 
@@ -62,6 +63,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             'UPDATE users SET is_section_head = 0 WHERE department_id = ? AND id != ?'
                         );
                         $clear->execute([(int) $dept_id, $newId]);
+                    }
+                    if ($newId > 0) {
+                        notification_prefs_apply_for_user($pdo, $newId, ['force' => true]);
                     }
                     redirect('modules/hr/users/list?success=user_added');
                 }

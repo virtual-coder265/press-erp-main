@@ -3,6 +3,8 @@ require_once dirname(dirname(__DIR__)) . '/config/app.php';
 checkAuth();
 require_once ROOT_PATH . 'config/database.php';
 require_once ROOT_PATH . 'includes/upload_helper.php';
+require_once ROOT_PATH . 'includes/notification_preferences_helper.php';
+require_once ROOT_PATH . 'libs/BrowserPushManager.php';
 
 $user_id = intval($_SESSION['user_id']);
 $success_message = '';
@@ -18,10 +20,17 @@ try {
     $user = [];
 }
 
-// Handle Skip
+// Handle Skip profile
 if (isset($_POST['skip_profile'])) {
     $_SESSION['profile_skip_warning'] = true;
     $_SESSION['profile_enforced_valid'] = true;
+    redirect('modules/dashboard/index');
+}
+
+// Handle Skip notification setup (session only — user is prompted again next login)
+if (isset($_POST['skip_notifications'])) {
+    $_SESSION['notifications_skip_warning'] = true;
+    $_SESSION['notifications_enforced_valid'] = true;
     redirect('modules/dashboard/index');
 }
 
@@ -91,6 +100,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['skip_profile']) && !
                 $stmt->execute([$name, $email, $phone, $whatsapp_phone, $address, $user_id]);
                 $_SESSION['user_name'] = $name;
                 $_SESSION['profile_enforced_valid'] = true;
+
+                notification_prefs_apply_for_user($pdo, $user_id, [
+                    'phone' => $phone,
+                    'whatsapp_phone' => $whatsapp_phone,
+                    'force' => true,
+                ]);
+
+                if (
+                    notification_prefs_user_has_push_subscription($pdo, $user_id)
+                    || !setting_truthy('notification_push_enabled', true)
+                    || (($_POST['browser_push_ready'] ?? '') === '1')
+                ) {
+                    $_SESSION['notifications_enforced_valid'] = true;
+                }
+
                 $success_message = "Profile updated successfully!";
             
             // Notify user of profile change
@@ -106,6 +130,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['skip_profile']) && !
 
             $user = compact('name', 'email', 'phone', 'whatsapp_phone', 'address');
             $user['id'] = $user_id;
+
+            if (isset($_GET['action']) && $_GET['action'] === 'force_update' && !empty($_SESSION['notifications_enforced_valid'])) {
+                redirect('modules/dashboard/index?success=account_setup_complete');
+            }
         } catch (Exception $e) {
             $error_message = "Error updating profile. Please try again.";
         }
@@ -116,6 +144,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['skip_profile']) && !
 include ROOT_PATH . 'includes/header.php';
 
 $is_force_update = isset($_GET['action']) && $_GET['action'] === 'force_update';
+$browserPushManager = new BrowserPushManager($pdo);
+$pushStatus = $browserPushManager->getStatus($user_id);
+$needsNotificationSetup = $is_force_update && notification_prefs_user_needs_setup($pdo, $user_id);
+$pushSystemEnabled = function_exists('setting_truthy') && setting_truthy('notification_push_enabled', true);
+$hasValidPhone = (!empty($user['phone']) && preg_match('/^\+265(99|88|98|89)\d{5,}$/', (string) $user['phone']))
+    || (!empty($user['whatsapp_phone']) && preg_match('/^\+265(99|88|98|89)\d{5,}$/', (string) $user['whatsapp_phone']));
+$notificationOnlySetup = $needsNotificationSetup && $hasValidPhone;
 ?>
 
 <div class="max-w-4xl mx-auto">
@@ -195,11 +230,13 @@ $is_force_update = isset($_GET['action']) && $_GET['action'] === 'force_update';
                 
                 <?php if ($is_force_update && !$success_message): ?>
                     <div class="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800">
-                        <h3 class="font-bold flex items-center mb-2"><i class="material-icons mr-2">warning</i> Contact Update Required</h3>
-                        <p class="text-sm mb-2">To continue using Gov Press ERP safely and ensure you receive urgent notifications, you must update your profile with a valid <strong>SMS Phone</strong> or <strong>WhatsApp Number</strong> in the format <code class="bg-yellow-200 px-1 rounded">+26599...</code>.</p>
-                        <form method="POST" action="profile<?php echo $is_force_update ? '?action=force_update' : ''; ?>" class="mt-3">
-                            <button type="submit" name="skip_profile" class="text-sm font-semibold text-yellow-900 underline hover:text-yellow-700">Skip for now</button>
-                            <span class="text-xs text-yellow-700 ml-2">(You may miss urgent task assignments and critical system notifications)</span>
+                        <h3 class="font-bold flex items-center mb-2"><i class="material-icons mr-2">warning</i> Account Setup Required</h3>
+                        <p class="text-sm mb-2">To continue using Gov Press ERP safely and receive urgent alerts, complete your contact details and enable notifications below.</p>
+                        <p class="text-sm mb-2">Provide a valid <strong>SMS Phone</strong> or <strong>WhatsApp Number</strong> in the format <code class="bg-yellow-200 px-1 rounded">+26599...</code>, then enable browser notifications before saving.</p>
+                        <form method="POST" action="profile<?php echo $is_force_update ? '?action=force_update' : ''; ?>" class="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+                            <button type="submit" name="skip_profile" class="text-sm font-semibold text-yellow-900 underline hover:text-yellow-700">Skip profile for now</button>
+                            <button type="submit" name="skip_notifications" class="text-sm font-semibold text-yellow-900 underline hover:text-yellow-700">Skip notifications for now</button>
+                            <span class="text-xs text-yellow-700">(You may miss urgent task assignments and critical system notifications)</span>
                         </form>
                     </div>
                 <?php endif; ?>
@@ -219,6 +256,8 @@ $is_force_update = isset($_GET['action']) && $_GET['action'] === 'force_update';
                 <?php endif; ?>
 
                 <form method="POST" action="profile<?php echo $is_force_update ? '?action=force_update' : ''; ?>" class="space-y-6" id="profileUpdateForm">
+                    <input type="hidden" name="setup_notifications" id="setup-notifications-flag" value="<?php echo $is_force_update ? '1' : '0'; ?>">
+                    <input type="hidden" name="browser_push_ready" id="browser-push-ready-flag" value="<?php echo (!$pushSystemEnabled || !empty($pushStatus['has_active_subscription'])) ? '1' : '0'; ?>">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div class="md:col-span-2">
                             <label class="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-wide">Full Name</label>
@@ -276,18 +315,64 @@ $is_force_update = isset($_GET['action']) && $_GET['action'] === 'force_update';
                         </div>
                     </div>
 
+                    <?php if ($is_force_update || $needsNotificationSetup): ?>
+                    <div class="rounded-xl border border-teal-200 bg-teal-50/60 p-5 space-y-4" id="profile-notification-setup">
+                        <div class="flex items-start gap-3">
+                            <div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 flex-shrink-0">
+                                <i class="material-icons">notifications_active</i>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <h3 class="font-bold text-gray-800">Enable Notifications</h3>
+                                <p class="text-sm text-gray-600 mt-1">Email, in-app, and WhatsApp/SMS alerts (based on your numbers) will be turned on for all notification types when you save.</p>
+                            </div>
+                        </div>
+
+                        <ul class="text-sm text-gray-700 space-y-2 ml-1">
+                            <li class="flex items-center gap-2"><i class="material-icons text-green-600 text-base">check_circle</i> Email alerts to your registered address</li>
+                            <li class="flex items-center gap-2"><i class="material-icons text-green-600 text-base">check_circle</i> In-app and browser push for messages, tasks, security, and reminders</li>
+                            <li class="flex items-center gap-2"><i class="material-icons text-green-600 text-base">check_circle</i> WhatsApp/SMS when a matching phone number is provided</li>
+                        </ul>
+
+                        <?php if ($pushSystemEnabled): ?>
+                        <div class="flex flex-wrap items-center gap-3 pt-2">
+                            <span id="profile-push-status" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold <?php echo !empty($pushStatus['has_active_subscription']) ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-700'; ?>">
+                                <?php echo !empty($pushStatus['has_active_subscription']) ? 'Browser push active' : 'Browser push required'; ?>
+                            </span>
+                            <button
+                                type="button"
+                                id="profile-push-enable"
+                                class="inline-flex items-center gap-2 rounded-xl bg-teal-600 text-white px-4 py-2 text-sm font-semibold hover:bg-teal-700 transition"
+                                <?php echo !empty($pushStatus['has_active_subscription']) ? 'disabled' : ''; ?>
+                            >
+                                <i class="material-icons text-sm">notifications</i>
+                                <span><?php echo !empty($pushStatus['has_active_subscription']) ? 'Enabled' : 'Enable Browser Notifications'; ?></span>
+                            </button>
+                        </div>
+                        <p id="profile-push-detail" class="text-xs text-gray-500">
+                            <?php if (!empty($pushStatus['has_active_subscription'])): ?>
+                                This browser is registered for background alerts.
+                            <?php else: ?>
+                                Click the button above and allow notifications in your browser prompt before saving your profile.
+                            <?php endif; ?>
+                        </p>
+                        <?php else: ?>
+                        <p class="text-xs text-gray-500">Browser push is disabled system-wide. Email and phone channels will still be enabled.</p>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+
                     <div class="pt-4 flex items-center justify-end space-x-4">
                         <a href="<?php echo BASE_URL; ?>modules/dashboard/index" class="text-gray-500 hover:text-gray-700 font-bold px-6 py-3 transition">Discard</a>
                         <button
                             type="submit"
                             id="profileUpdateButton"
-                            class="bg-blue-600 text-white font-bold px-10 py-3 rounded-xl hover:bg-blue-700 transition shadow-lg shadow-blue-200 opacity-60 cursor-not-allowed"
-                            data-default-label="Update Profile"
+                            class="bg-blue-600 text-white font-bold px-10 py-3 rounded-xl hover:bg-blue-700 transition shadow-lg shadow-blue-200<?php echo $notificationOnlySetup ? '' : ' opacity-60 cursor-not-allowed'; ?>"
+                            data-default-label="<?php echo $notificationOnlySetup ? 'Complete Setup' : 'Update Profile'; ?>"
                             data-locked-label="Update After Changes"
-                            disabled
-                            aria-disabled="true"
+                            data-notification-only="<?php echo $notificationOnlySetup ? '1' : '0'; ?>"
+                            <?php echo $notificationOnlySetup ? '' : 'disabled aria-disabled="true"'; ?>
                         >
-                            Update Profile
+                            <?php echo $notificationOnlySetup ? 'Complete Setup' : 'Update Profile'; ?>
                         </button>
                     </div>
                 </form>
@@ -316,6 +401,66 @@ document.getElementById('profile-photo-input').addEventListener('change', functi
 document.addEventListener('DOMContentLoaded', function () {
     var profileForm = document.getElementById('profileUpdateForm');
     var updateButton = document.getElementById('profileUpdateButton');
+    var pushEnableButton = document.getElementById('profile-push-enable');
+    var pushStatusEl = document.getElementById('profile-push-status');
+    var pushDetailEl = document.getElementById('profile-push-detail');
+    var pushReadyFlag = document.getElementById('browser-push-ready-flag');
+    var notificationSetupRequired = <?php echo ($is_force_update && $pushSystemEnabled) ? 'true' : 'false'; ?>;
+    var notificationOnlySetup = updateButton && updateButton.dataset.notificationOnly === '1';
+    var pushAlreadyActive = <?php echo !empty($pushStatus['has_active_subscription']) ? 'true' : 'false'; ?>;
+    var pushReady = pushAlreadyActive || !notificationSetupRequired;
+
+    function markPushReady(active) {
+        pushReady = !!active;
+        if (pushReadyFlag) {
+            pushReadyFlag.value = pushReady ? '1' : '0';
+        }
+        if (pushStatusEl) {
+            pushStatusEl.textContent = pushReady ? 'Browser push active' : 'Browser push required';
+            pushStatusEl.className = 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold '
+                + (pushReady ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-700');
+        }
+        if (pushDetailEl && pushReady) {
+            pushDetailEl.textContent = 'This browser is registered for background alerts.';
+        }
+        if (pushEnableButton && pushReady) {
+            pushEnableButton.disabled = true;
+            pushEnableButton.querySelector('span').textContent = 'Enabled';
+        }
+    }
+
+    if (pushAlreadyActive) {
+        markPushReady(true);
+    }
+
+    if (pushEnableButton) {
+        pushEnableButton.addEventListener('click', function () {
+            if (!window.PressErpPush || typeof window.PressErpPush.enable !== 'function') {
+                alert('Browser push helpers are not loaded. Please refresh the page and try again.');
+                return;
+            }
+
+            pushEnableButton.disabled = true;
+            window.PressErpPush.enable()
+                .then(function () {
+                    markPushReady(true);
+                })
+                .catch(function (error) {
+                    pushEnableButton.disabled = false;
+                    var denied = window.Notification && window.Notification.permission === 'denied';
+                    if (denied) {
+                        markPushReady(true);
+                        if (pushDetailEl) {
+                            pushDetailEl.textContent = 'Browser notifications are blocked. Enable them in your browser settings, or continue with email and phone alerts only.';
+                        }
+                    } else if (typeof showToast === 'function') {
+                        showToast(error.message || 'Unable to enable browser notifications.', 'error');
+                    } else {
+                        alert(error.message || 'Unable to enable browser notifications.');
+                    }
+                });
+        });
+    }
 
     if (!profileForm || !updateButton) {
         return;
@@ -342,18 +487,37 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function syncProfileUpdateButton() {
         var isDirty = captureFormState(profileForm) !== initialProfileFormState;
-        updateButton.disabled = !isDirty;
-        updateButton.setAttribute('aria-disabled', isDirty ? 'false' : 'true');
-        updateButton.classList.toggle('opacity-60', !isDirty);
-        updateButton.classList.toggle('cursor-not-allowed', !isDirty);
-        updateButton.textContent = isDirty
-            ? (updateButton.dataset.defaultLabel || 'Update Profile')
-            : (updateButton.dataset.lockedLabel || 'Update After Changes');
+        var canSubmit = notificationOnlySetup || isDirty;
+        updateButton.disabled = !canSubmit;
+        updateButton.setAttribute('aria-disabled', canSubmit ? 'false' : 'true');
+        updateButton.classList.toggle('opacity-60', !canSubmit);
+        updateButton.classList.toggle('cursor-not-allowed', !canSubmit);
+        updateButton.textContent = notificationOnlySetup
+            ? (updateButton.dataset.defaultLabel || 'Complete Setup')
+            : (isDirty
+                ? (updateButton.dataset.defaultLabel || 'Update Profile')
+                : (updateButton.dataset.lockedLabel || 'Update After Changes'));
     }
 
     profileForm.addEventListener('input', syncProfileUpdateButton);
     profileForm.addEventListener('change', syncProfileUpdateButton);
     syncProfileUpdateButton();
+
+    profileForm.addEventListener('submit', function (event) {
+        if (!notificationSetupRequired || pushReady) {
+            return;
+        }
+
+        event.preventDefault();
+        if (typeof showToast === 'function') {
+            showToast('Please enable browser notifications before saving your profile.', 'warning');
+        } else {
+            alert('Please enable browser notifications before saving your profile.');
+        }
+        if (pushEnableButton) {
+            pushEnableButton.focus();
+        }
+    });
 });
 </script>
 

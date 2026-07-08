@@ -83,7 +83,7 @@ function notifyTaskAssignees(
             $description,
             'modules/tasks/list?id=' . $taskId,
             $taskId,
-            $isUpdate,
+            false,
             false,
             [
                 'assigner' => $assigner,

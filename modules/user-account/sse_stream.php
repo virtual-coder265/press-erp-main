@@ -27,7 +27,7 @@ $lastNotifCount  = -1;
 $lastMsgCount    = -1;
 $startTime       = time();
 $maxRuntime      = 300; // 5 minutes — browser EventSource auto-reconnects after
-$heartbeatEvery  = 30;  // seconds between keepalive comments
+$heartbeatEvery  = 45;  // seconds between keepalive comments
 $lastHeartbeat   = time();
 
 $notifStmt = $pdo->prepare(
@@ -69,5 +69,5 @@ while (!connection_aborted() && (time() - $startTime) < $maxRuntime) {
         $lastHeartbeat = time();
     }
 
-    sleep(2);
+    sleep(4);
 }

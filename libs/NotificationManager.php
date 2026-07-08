@@ -8,6 +8,7 @@
 require_once __DIR__ . '/MailManager.php';
 require_once __DIR__ . '/BrowserPushManager.php';
 require_once __DIR__ . '/../includes/delivery_log_helper.php';
+require_once __DIR__ . '/../includes/notification_preferences_helper.php';
 
 class NotificationManager {
     private $pdo;
@@ -527,14 +528,19 @@ class NotificationManager {
             $settings = $stmt->fetch();
         }
 
-        // Default to enabled if no settings found
+        // Default to enabled if no settings found (aligned with onboarding defaults)
         if (!$settings) {
+            $userStmt = $this->pdo->prepare('SELECT phone, whatsapp_phone FROM users WHERE id = :id LIMIT 1');
+            $userStmt->execute(['id' => $userId]);
+            $userRow = $userStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            $defaults = notification_prefs_runtime_defaults($userRow);
+
             $this->userSettingsCache[$cacheKey] = [
-                'email_enabled' => false,
-                'in_app_enabled' => true,
-                'push_enabled' => true,
-                'sms_enabled' => false,
-                'whatsapp_enabled' => false
+                'email_enabled' => $defaults['email_enabled'],
+                'in_app_enabled' => $defaults['in_app_enabled'],
+                'push_enabled' => $defaults['push_enabled'],
+                'sms_enabled' => $defaults['sms_enabled'],
+                'whatsapp_enabled' => $defaults['whatsapp_enabled'],
             ];
             return $this->userSettingsCache[$cacheKey];
         }

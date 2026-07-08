@@ -2,6 +2,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/app.php';
 checkAuth();
 require_once ROOT_PATH . 'config/database.php';
+require_once ROOT_PATH . 'includes/notification_preferences_helper.php';
 require_once ROOT_PATH . 'libs/NotificationManager.php';
 require_once ROOT_PATH . 'libs/BrowserPushManager.php';
 
@@ -100,7 +101,16 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $setting) {
 
 function isChecked($type, $field, $current_settings) {
     if (!isset($current_settings[$type])) {
-        return in_array($field, ['in_app_enabled', 'push_enabled'], true) ? 'checked' : '';
+        $defaults = notification_prefs_runtime_defaults();
+        $keyMap = [
+            'in_app_enabled' => 'in_app_enabled',
+            'push_enabled' => 'push_enabled',
+            'email_enabled' => 'email_enabled',
+            'sms_enabled' => 'sms_enabled',
+            'whatsapp_enabled' => 'whatsapp_enabled',
+        ];
+        $defaultKey = $keyMap[$field] ?? null;
+        return ($defaultKey && !empty($defaults[$defaultKey])) ? 'checked' : '';
     }
     return $current_settings[$type][$field] ? 'checked' : '';
 }

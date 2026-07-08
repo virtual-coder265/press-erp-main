@@ -260,6 +260,10 @@ $showDepartmentChip = $departmentName !== '' && strcasecmp($departmentName, 'Gov
     }
 
     function playNotificationSound() {
+        if (window.PressErpPush && typeof window.PressErpPush.wasRecentDelivery === 'function' && window.PressErpPush.wasRecentDelivery()) {
+            return;
+        }
+
         if (typeof window.playAppSound === 'function') {
             window.playAppSound('message');
             return;
@@ -376,9 +380,20 @@ $showDepartmentChip = $departmentName !== '' && strcasecmp($departmentName, 'Gov
         es.addEventListener('notification', function (e) {
             var data = JSON.parse(e.data);
             var newCount = Number(data.count || 0);
-            if (newCount > lastUnreadCount) {
+            var skipRefresh = window.PressErpPush
+                && typeof window.PressErpPush.wasRecentDelivery === 'function'
+                && window.PressErpPush.wasRecentDelivery();
+
+            if (newCount > lastUnreadCount && !skipRefresh) {
                 playNotificationSound();
-                // Refresh the dropdown list with the latest notifications
+                $.get('<?php echo BASE_URL; ?>modules/user-account/notification_action',
+                    { action: 'get_latest' },
+                    function (r) {
+                        if (r && r.success) {
+                            refreshNotifDropdown(r.notifications, r.count);
+                        }
+                    }, 'json');
+            } else if (newCount > lastUnreadCount && notifDropdown && !notifDropdown.classList.contains('hidden')) {
                 $.get('<?php echo BASE_URL; ?>modules/user-account/notification_action',
                     { action: 'get_latest' },
                     function (r) {

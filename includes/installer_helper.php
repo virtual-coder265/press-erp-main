@@ -999,7 +999,7 @@ if (!function_exists('installer_ensure_notifications_schema')) {
             $stmt = $pdo->prepare("
                 INSERT IGNORE INTO `notification_settings`
                     (`user_id`, `notification_type`, `email_enabled`, `in_app_enabled`, `push_enabled`, `sms_enabled`, `whatsapp_enabled`)
-                SELECT `id`, :notification_type, 0, 1, 1, 0, 0
+                SELECT `id`, :notification_type, 1, 1, 1, 0, 0
                 FROM `users`
             ");
             $stmt->execute(['notification_type' => $type]);

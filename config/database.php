@@ -25,6 +25,7 @@ try {
     $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
 
     require_once __DIR__ . '/../includes/settings_helper.php';
+    require_once __DIR__ . '/../includes/notification_preferences_helper.php';
     require_once __DIR__ . '/../includes/permissions_helper.php';
     require_once __DIR__ . '/../libs/AuditLogger.php';
 
@@ -117,6 +118,45 @@ try {
                     $_SESSION['profile_enforced_valid'] = true;
                 }
             }
+        }
+    }
+
+    // Notification setup enforcement for new users
+    if (
+        isset($_SESSION['user_id']) &&
+        empty($_SESSION['notifications_skip_warning']) &&
+        setting_truthy('profile_enforcement_enabled', true)
+    ) {
+        $current_script = $_SERVER['PHP_SELF'] ?? '';
+        $notification_setup_exempt = (
+            strpos($current_script, 'modules/user-account/profile') !== false ||
+            strpos($current_script, 'modules/user-account/push_subscription') !== false ||
+            strpos($current_script, 'modules/user-account/push_test') !== false ||
+            strpos($current_script, 'modules/auth/logout') !== false ||
+            strpos($current_script, 'modules/auth/login') !== false
+        );
+
+        if (!$notification_setup_exempt) {
+            $needsNotificationSetup = !isset($_SESSION['notifications_enforced_valid'])
+                || !$_SESSION['notifications_enforced_valid'];
+
+            if ($needsNotificationSetup) {
+                $needsNotificationSetup = notification_prefs_user_needs_setup(
+                    $pdo,
+                    (int) $_SESSION['user_id']
+                );
+            }
+
+            if ($needsNotificationSetup) {
+                $_SESSION['notifications_enforced_valid'] = false;
+                $redirect_url = defined('BASE_URL')
+                    ? BASE_URL . 'modules/user-account/profile?action=force_update'
+                    : '/press-erp-main/modules/user-account/profile?action=force_update';
+                header('Location: ' . $redirect_url);
+                exit;
+            }
+
+            $_SESSION['notifications_enforced_valid'] = true;
         }
     }
 

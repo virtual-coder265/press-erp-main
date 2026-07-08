@@ -224,10 +224,57 @@
         return state.lastStatus;
     }
 
+    function markRecentPushDelivery() {
+        try {
+            sessionStorage.setItem('press_erp_recent_push_at', String(Date.now()));
+        } catch (error) {
+        }
+    }
+
+    function wasRecentPushDelivery(maxAgeMs) {
+        try {
+            const timestamp = parseInt(sessionStorage.getItem('press_erp_recent_push_at') || '0', 10);
+            return timestamp > 0 && (Date.now() - timestamp) < (maxAgeMs || 5000);
+        } catch (error) {
+            return false;
+        }
+    }
+
+    async function backgroundSyncIfNeeded() {
+        if (!isSupported() || !config.enabled || !isSecureEnough()) {
+            return;
+        }
+
+        if (Notification.permission !== 'granted') {
+            return;
+        }
+
+        const storageKey = 'press_erp_push_sync_at';
+        let lastSync = 0;
+
+        try {
+            lastSync = parseInt(sessionStorage.getItem(storageKey) || '0', 10);
+        } catch (error) {
+            lastSync = 0;
+        }
+
+        if (Date.now() - lastSync < 30 * 60 * 1000) {
+            return;
+        }
+
+        try {
+            await syncSubscription(false);
+            sessionStorage.setItem(storageKey, String(Date.now()));
+        } catch (error) {
+        }
+    }
+
     function showIncomingPushToast(payload) {
         if (!payload || typeof payload !== 'object') {
             return;
         }
+
+        markRecentPushDelivery();
 
         const message = payload.toastMessage || payload.body || payload.title || 'New notification';
         const toastType = payload.toastType || 'info';
@@ -354,6 +401,7 @@
         });
 
         if (!hasPushManagementUi()) {
+            backgroundSyncIfNeeded().catch(function () {});
             return;
         }
 
@@ -378,6 +426,9 @@
         },
         refreshStatus: function () {
             return refreshStatus();
+        },
+        wasRecentDelivery: function () {
+            return wasRecentPushDelivery(5000);
         }
     };
 
