@@ -275,7 +275,7 @@ include ROOT_PATH . 'includes/header.php';
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-6">
         <div class="px-6 py-5 flex items-center justify-between gap-4 flex-wrap">
             <div class="flex items-center gap-4 min-w-0">
-                <div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 flex-shrink-0">
+                <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 flex-shrink-0">
                     <i class="material-icons">notifications_active</i>
                 </div>
                 <div>
@@ -284,13 +284,13 @@ include ROOT_PATH . 'includes/header.php';
                 </div>
             </div>
             <div class="flex items-center gap-3">
-                <span id="browser-push-status" class="inline-flex items-center px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">
+                <span id="browser-push-status" class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold">
                     <?php echo !empty($pushStatus['has_active_subscription']) ? 'Active' : 'Not Enabled'; ?>
                 </span>
                 <button
                     type="button"
                     id="browser-push-test"
-                    class="inline-flex items-center gap-2 rounded-xl border border-teal-300 text-teal-700 px-4 py-2 text-sm font-semibold hover:bg-teal-50 transition"
+                    class="inline-flex items-center gap-2 rounded-xl border border-blue-300 text-blue-700 px-4 py-2 text-sm font-semibold hover:bg-blue-50 transition"
                 >
                     <i class="material-icons text-sm">send</i>
                     <span>Send Test</span>
@@ -298,7 +298,7 @@ include ROOT_PATH . 'includes/header.php';
                 <button
                     type="button"
                     id="browser-push-enable"
-                    class="inline-flex items-center gap-2 rounded-xl bg-teal-600 text-white px-4 py-2 text-sm font-semibold hover:bg-teal-700 transition"
+                    class="inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 transition shadow-md"
                 >
                     <i class="material-icons text-sm">notifications</i>
                     <span>Enable</span>
@@ -306,7 +306,7 @@ include ROOT_PATH . 'includes/header.php';
                 <button
                     type="button"
                     id="browser-push-disable"
-                    class="inline-flex items-center gap-2 rounded-xl border border-slate-300 text-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-50 transition"
+                    class="inline-flex items-center gap-2 rounded-xl border border-gray-300 text-gray-700 px-4 py-2 text-sm font-semibold hover:bg-gray-50 transition"
                     <?php echo empty($pushStatus['has_active_subscription']) ? 'disabled' : ''; ?>
                 >
                     <i class="material-icons text-sm">notifications_off</i>

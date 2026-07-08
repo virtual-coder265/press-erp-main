@@ -316,9 +316,9 @@ $notificationOnlySetup = $needsNotificationSetup && $hasValidPhone;
                     </div>
 
                     <?php if ($is_force_update || $needsNotificationSetup): ?>
-                    <div class="rounded-xl border border-teal-200 bg-teal-50/60 p-5 space-y-4" id="profile-notification-setup">
+                    <div class="rounded-xl border border-blue-200 bg-blue-50 p-5 space-y-4" id="profile-notification-setup">
                         <div class="flex items-start gap-3">
-                            <div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 flex-shrink-0">
+                            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 flex-shrink-0">
                                 <i class="material-icons">notifications_active</i>
                             </div>
                             <div class="flex-1 min-w-0">
@@ -335,13 +335,13 @@ $notificationOnlySetup = $needsNotificationSetup && $hasValidPhone;
 
                         <?php if ($pushSystemEnabled): ?>
                         <div class="flex flex-wrap items-center gap-3 pt-2">
-                            <span id="profile-push-status" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold <?php echo !empty($pushStatus['has_active_subscription']) ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-700'; ?>">
+                            <span id="profile-push-status" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold <?php echo !empty($pushStatus['has_active_subscription']) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'; ?>">
                                 <?php echo !empty($pushStatus['has_active_subscription']) ? 'Browser push active' : 'Browser push required'; ?>
                             </span>
                             <button
                                 type="button"
                                 id="profile-push-enable"
-                                class="inline-flex items-center gap-2 rounded-xl bg-teal-600 text-white px-4 py-2 text-sm font-semibold hover:bg-teal-700 transition"
+                                class="inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 transition shadow-md"
                                 <?php echo !empty($pushStatus['has_active_subscription']) ? 'disabled' : ''; ?>
                             >
                                 <i class="material-icons text-sm">notifications</i>
@@ -418,7 +418,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (pushStatusEl) {
             pushStatusEl.textContent = pushReady ? 'Browser push active' : 'Browser push required';
             pushStatusEl.className = 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold '
-                + (pushReady ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-700');
+                + (pushReady ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700');
         }
         if (pushDetailEl && pushReady) {
             pushDetailEl.textContent = 'This browser is registered for background alerts.';
