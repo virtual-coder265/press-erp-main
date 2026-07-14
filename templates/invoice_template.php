@@ -2,25 +2,7 @@
 /**
  * Invoice PDF Template
  *
- * Visual design adapted from the "Juliana Silva / Graphic Solutions"
- * reference: top black band + large INVOICE wordmark, prominent
- * customer name with the invoice number aligned right, dark-headed
- * alternating items table, payment-data + totals split, terms section,
- * and a contact band footer with a decorative two-tone bottom strip.
- *
- * Optimised for Dompdf 3.x (uses table-based layouts, avoids flex).
- *
- * Defensive coding: every invoice / item field is coalesced so legacy
- * rows (where items_json was stored as `{"description":"...","price":"..."}`)
- * render without "Undefined array key" warnings. Older invoices that
- * recorded `subtotal == total_amount` and `tax_amount == 0` have their
- * implicit VAT recovered and surfaced in the totals box.
- *
- * Required input variables (provided by includes/pdf_helper.php):
- *   $invoice  array  Invoice DB row (incl. items_json, vat_percent, etc.)
- *   $business array  Business / branding data (currently unused — settings
- *                    are pulled fresh from settings_helper.php so the PDF
- *                    always reflects the latest configuration).
+
  */
 
 // --------------------------------------------------------------------
@@ -135,7 +117,7 @@ $settings = function_exists('get_business_pdf_settings') ? get_business_pdf_sett
 $defaults = [
     'business_logo'      => '',
     'business_name'      => 'Your Company Name',
-    'business_tagline'   => 'Print &amp; Production Services',
+    'business_tagline'   => 'Print & Production Services',
     'business_address'   => "123 Business Street\nCity, State, ZIP\nCountry",
     'business_phone'     => '',
     'business_email'     => '',
@@ -156,23 +138,12 @@ $money = function ($n) use ($currency) {
     return $currency . ' ' . number_format((float) $n, 2);
 };
 
-// Resolve logo to an absolute filesystem path so Dompdf can embed it.
-$logoPath = '';
-if (!empty($settings['business_logo'])) {
-    $candidate = $settings['business_logo'];
-    if (preg_match('#^https?://#i', $candidate)) {
-        $logoPath = $candidate;
-    } else {
-        $relative = ltrim($candidate, '/\\');
-        $resolved = realpath(__DIR__ . '/../' . $relative);
-        if ($resolved && is_file($resolved)) {
-            $logoPath = $resolved;
-        } elseif (!empty($_SERVER['DOCUMENT_ROOT'])) {
-            $resolved = realpath($_SERVER['DOCUMENT_ROOT'] . '/' . $relative);
-            if ($resolved && is_file($resolved)) {
-                $logoPath = $resolved;
-            }
-        }
+// Resolve logo to an embeddable src (base64 data URI for local files).
+$logoSrc = '';
+if (!empty($settings['business_logo']) && function_exists('resolve_pdf_embed_image_src')) {
+    $resolved = resolve_pdf_embed_image_src((string) $settings['business_logo']);
+    if ($resolved !== null) {
+        $logoSrc = $resolved;
     }
 }
 
@@ -208,7 +179,7 @@ $addressFirstLine = trim((string) (explode("\n", (string) $settings['business_ad
 require_once __DIR__ . '/../includes/billing_layout_helper.php';
 $layout = get_merged_billing_layout('invoice', isset($billing_layout_variant_override) ? $billing_layout_variant_override : null);
 $jobNotes = trim((string) ($invoice['estimation_job_description'] ?? ''));
-$showLogoBlock = ($layout['logo_position'] !== 'hidden') && ($logoPath !== '');
+$showLogoBlock = ($layout['logo_position'] !== 'hidden') && ($logoSrc !== '');
 $hdrStyle = (string) ($layout['header_style'] ?? 'band');
 if (!in_array($hdrStyle, ['band', 'classic', 'minimal'], true)) {
     $hdrStyle = 'band';
@@ -375,6 +346,7 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
             color: <?php echo $inkSoft; ?>;
             vertical-align: top;
             border: none;
+            border-bottom: 1px solid #e8e8e8;
         }
         table.items tbody tr:nth-child(odd) td { background-color: <?php echo $rowAlt; ?>; }
         table.items tbody td.right { text-align: right; white-space: nowrap; }
@@ -383,7 +355,13 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
 
         /* ------- Payment data + totals ------- */
         .payment-totals { margin-top: 28px; }
-        .payment-totals table.layout td { padding: 0 0 6px 0; }
+
+        .payment-panel {
+            margin-bottom: 18px;
+            padding: 14px 16px;
+            border: 1px solid #e0e0e0;
+            background-color: #f8f8f8;
+        }
 
         .pd-label {
             font-size: 10px;
@@ -391,7 +369,7 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
             color: <?php echo $ink; ?>;
             text-transform: uppercase;
             letter-spacing: 1px;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
         }
         .pd-row {
             font-size: 10.5px;
@@ -400,12 +378,20 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
         }
         .pd-row strong { color: <?php echo $ink; ?>; text-transform: uppercase; letter-spacing: 0.5px; font-size: 10px; }
 
+        .totals-block {
+            text-align: right;
+            margin-top: 4px;
+        }
         table.totals-mini {
             width: 100%;
+            max-width: 280px;
+            margin-left: auto;
             border-collapse: collapse;
+            border-top: 2px solid <?php echo $rule; ?>;
+            padding-top: 4px;
         }
         table.totals-mini td {
-            padding: 4px 0;
+            padding: 5px 8px;
             font-size: 11px;
         }
         table.totals-mini td.lbl {
@@ -421,14 +407,16 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
             font-weight: 600;
         }
         table.totals-mini tr.total-row td {
-            padding-top: 8px;
+            padding-top: 10px;
             font-size: 13px;
             color: <?php echo $ink; ?>;
+            background-color: #f5f5f5;
         }
         table.totals-mini tr.total-row td.val { color: <?php echo $ink; ?>; font-weight: bold; }
         table.totals-mini tr.balance-row td {
             color: #8a1a1a;
             font-weight: bold;
+            background-color: #fdf0f0;
         }
         table.totals-mini tr.balance-row td.val { color: #8a1a1a; }
 
@@ -462,19 +450,17 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
         .contact-icon {
             width: 26px;
             height: 26px;
-            border-radius: 13px;
             background-color: <?php echo $rule; ?>;
             color: #ffffff;
-            display: inline-block;
             text-align: center;
             font-size: 13px;
             line-height: 26px;
-            margin-right: 8px;
             vertical-align: middle;
         }
         .contact-icon-cell {
             width: 36px;
             text-align: center;
+            vertical-align: middle;
         }
         .contact-label {
             font-size: 11px;
@@ -495,14 +481,6 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
         table.bottom-deco td { height: 28px; padding: 0; }
         td.deco-light { background-color: <?php echo $bandLight; ?>; }
         td.deco-dark  { background-color: <?php echo $rule; ?>; }
-        td.deco-slope {
-            width: 28px;
-            border-style: solid;
-            border-width: 0 0 28px 28px;
-            border-color: transparent transparent <?php echo $rule; ?> transparent;
-            background: <?php echo $bandLight; ?>;
-            padding: 0;
-        }
 
         /* ------- "PAID" stamp overlay ------- */
         .paid-stamp {
@@ -565,13 +543,35 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
             color: <?php echo $ink; ?>;
         }
         .sig-wrap { margin-top: 22px; page-break-inside: avoid; }
-        .sig-table { width: 100%; border-collapse: collapse; }
-        .sig-table td { width: 33%; text-align: center; vertical-align: top; padding: 0 8px; }
-        .sig-line {
-            border-top: 1px solid <?php echo $rule; ?>;
-            margin: 36px 0 6px 0;
+        .sig-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
         }
-        .sig-label { font-size: 9.5px; color: <?php echo $inkSoft; ?>; }
+        .sig-table td {
+            width: 33%;
+            text-align: center;
+            vertical-align: bottom;
+            padding: 0 12px;
+        }
+        .sig-space-row td {
+            height: 48px;
+            border-bottom: 1px solid <?php echo $rule; ?>;
+            vertical-align: bottom;
+        }
+        .sig-label-row td {
+            padding-top: 6px;
+            font-size: 9.5px;
+            color: <?php echo $inkSoft; ?>;
+        }
+        .brand-logo {
+            max-width: 72px;
+            max-height: 72px;
+        }
+        .brand-logo-sm {
+            max-width: 56px;
+            max-height: 56px;
+        }
     </style>
 </head>
 <body class="hdr-<?php echo htmlspecialchars($hdrStyle); ?>">
@@ -588,24 +588,25 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
 
     <!-- ============== Header ============== -->
     <?php
-    $brandCell = function () use ($showLogoBlock, $logoPath, $settings, $ink, $inkSoft) {
-        ?>
-        <table class="layout"><tr>
-            <?php if ($showLogoBlock): ?>
-                <td style="width: 60px; padding-right: 10px; vertical-align: middle;">
-                    <img src="<?php echo htmlspecialchars($logoPath); ?>"
-                         alt="<?php echo htmlspecialchars($settings['business_name']); ?>"
-                         style="max-width: 56px; max-height: 56px;">
-                </td>
-            <?php endif; ?>
-            <td style="vertical-align: middle;">
-                <div class="brand-name"><?php echo htmlspecialchars($settings['business_name']); ?></div>
-                <?php if (!empty($settings['business_tagline'])): ?>
-                    <div class="brand-tag"><?php echo htmlspecialchars($settings['business_tagline']); ?></div>
-                <?php endif; ?>
-            </td>
-        </tr></table>
-        <?php
+    $taglineHtml = function () use ($settings) {
+        if (!empty($settings['business_tagline'])) {
+            $tagline = html_entity_decode((string) $settings['business_tagline'], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            echo '<div class="brand-tag">' . htmlspecialchars($tagline) . '</div>';
+        }
+    };
+    $brandTextHtml = function () use ($settings, $taglineHtml) {
+        echo '<div class="brand-name">' . htmlspecialchars((string) $settings['business_name']) . '</div>';
+        $taglineHtml();
+    };
+    $brandCell = function () use ($showLogoBlock, $logoSrc, $brandTextHtml, $taglineHtml) {
+        if ($showLogoBlock) {
+            ?>
+            <img src="<?php echo htmlspecialchars($logoSrc); ?>" alt="" class="brand-logo-sm">
+            <?php $taglineHtml(); ?>
+            <?php
+            return;
+        }
+        $brandTextHtml();
     };
     $wordmarkHtml = '<div class="doc-wordmark">INVOICE</div>';
     ?>
@@ -615,14 +616,11 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
             <td class="header-center-stack" style="width: 100%;">
                 <?php if ($showLogoBlock): ?>
                     <div style="margin-bottom: 8px;">
-                        <img src="<?php echo htmlspecialchars($logoPath); ?>"
-                             alt="<?php echo htmlspecialchars($settings['business_name']); ?>"
-                             style="max-width: 72px; max-height: 72px;">
+                        <img src="<?php echo htmlspecialchars($logoSrc); ?>" alt="" class="brand-logo">
                     </div>
-                <?php endif; ?>
-                <div class="brand-name"><?php echo htmlspecialchars($settings['business_name']); ?></div>
-                <?php if (!empty($settings['business_tagline'])): ?>
-                    <div class="brand-tag"><?php echo htmlspecialchars($settings['business_tagline']); ?></div>
+                    <?php $taglineHtml(); ?>
+                <?php else: ?>
+                    <?php $brandTextHtml(); ?>
                 <?php endif; ?>
                 <div style="margin-top: 10px;"><?php echo $wordmarkHtml; ?></div>
             </td>
@@ -635,28 +633,19 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
                 <?php echo $wordmarkHtml; ?>
             </td>
             <td style="width: 58%; vertical-align: middle; text-align: right;">
-                <table class="layout" align="right"><tr>
-                    <td style="vertical-align: middle; text-align: right;">
-                        <div class="brand-name"><?php echo htmlspecialchars($settings['business_name']); ?></div>
-                        <?php if (!empty($settings['business_tagline'])): ?>
-                            <div class="brand-tag"><?php echo htmlspecialchars($settings['business_tagline']); ?></div>
-                        <?php endif; ?>
-                    </td>
-                    <?php if ($showLogoBlock): ?>
-                        <td style="width: 60px; padding-left: 10px; vertical-align: middle;">
-                            <img src="<?php echo htmlspecialchars($logoPath); ?>"
-                                 alt="<?php echo htmlspecialchars($settings['business_name']); ?>"
-                                 style="max-width: 56px; max-height: 56px;">
-                        </td>
-                    <?php endif; ?>
-                </tr></table>
+                <?php if ($showLogoBlock): ?>
+                    <img src="<?php echo htmlspecialchars($logoSrc); ?>" alt="" class="brand-logo-sm" style="margin-left: auto; display: block;">
+                    <div style="margin-top: 6px; text-align: right;"><?php $taglineHtml(); ?></div>
+                <?php else: ?>
+                    <div style="text-align: right;"><?php $brandTextHtml(); ?></div>
+                <?php endif; ?>
             </td>
         </tr>
     </table>
     <?php else: ?>
     <table class="layout">
         <tr>
-            <td class="brand-block" style="width: 60%;">
+            <td class="brand-block" style="width: 60%; vertical-align: middle;">
                 <?php $brandCell(); ?>
             </td>
             <td style="width: 40%; vertical-align: middle;">
@@ -731,9 +720,9 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
                                 <?php echo nl2br(htmlspecialchars($item['description'])); ?>
                             </div>
                         </td>
-                        <td class="right"><?php echo number_format($item['unit_price'], 2); ?></td>
+                        <td class="right"><?php echo $money($item['unit_price']); ?></td>
                         <td class="right"><?php echo number_format($item['quantity'], $item['quantity'] == (int) $item['quantity'] ? 0 : 2); ?></td>
-                        <td class="right"><?php echo number_format($item['total_price'], 2); ?></td>
+                        <td class="right"><?php echo $money($item['total_price']); ?></td>
                     </tr>
                 <?php endforeach; ?>
             <?php else: ?>
@@ -748,82 +737,78 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
 
     <!-- ============== Payment data + totals ============== -->
     <div class="payment-totals">
-        <table class="layout">
-            <tr>
-                <?php if (!empty($layout['show_payment_details'])): ?>
-                <td style="width: 55%; padding-right: 16px;">
-                    <div class="pd-label">Payment Data:</div>
-                    <?php if (!empty($settings['bank_name'])): ?>
-                        <div class="pd-row"><strong>Bank:</strong> <?php echo htmlspecialchars($settings['bank_name']); ?></div>
-                    <?php endif; ?>
-                    <?php if (!empty($settings['account_number'])): ?>
-                        <div class="pd-row"><strong>Account#:</strong> <?php echo htmlspecialchars($settings['account_number']); ?></div>
-                    <?php endif; ?>
-                    <?php if (!empty($settings['bank_branch'])): ?>
-                        <div class="pd-row"><strong>Branch:</strong> <?php echo htmlspecialchars($settings['bank_branch']); ?></div>
-                    <?php endif; ?>
-                    <?php if (!empty($settings['swift_code'])): ?>
-                        <div class="pd-row"><strong>SWIFT:</strong> <?php echo htmlspecialchars($settings['swift_code']); ?></div>
-                    <?php endif; ?>
-                    <?php if (!empty($settings['iban'])): ?>
-                        <div class="pd-row"><strong>IBAN:</strong> <?php echo htmlspecialchars($settings['iban']); ?></div>
-                    <?php endif; ?>
-                    <div class="pd-row"><strong>Name:</strong> <?php echo htmlspecialchars($settings['business_name']); ?></div>
-                    <div class="pd-row" style="margin-top: 6px; color: <?php echo $muted; ?>; font-size: 9.5px;">
-                        Please reference invoice <strong><?php echo htmlspecialchars($invoice_number); ?></strong>
-                        on all payments.
-                    </div>
-                </td>
-                <td style="width: 45%; vertical-align: top;">
-                <?php else: ?>
-                <td style="width: 100%; vertical-align: top; text-align: right;" colspan="2">
+
+        <div class="totals-block">
+            <table class="totals-mini">
+                <tr>
+                    <td class="lbl">Subtotal</td>
+                    <td class="val"><?php echo $money($subtotal); ?></td>
+                </tr>
+                <?php if (!empty($layout['show_tax_breakdown'])): ?>
+                <?php if ($discount_amount > 0): ?>
+                    <tr>
+                        <td class="lbl">Discount</td>
+                        <td class="val">- <?php echo $money($discount_amount); ?></td>
+                    </tr>
                 <?php endif; ?>
-                    <table class="totals-mini" style="<?php echo empty($layout['show_payment_details']) ? 'margin-left: auto;' : ''; ?>">
-                        <tr>
-                            <td class="lbl">Subtotal</td>
-                            <td class="val"><?php echo $money($subtotal); ?></td>
-                        </tr>
-                        <?php if (!empty($layout['show_tax_breakdown'])): ?>
-                        <?php if ($discount_amount > 0): ?>
-                            <tr>
-                                <td class="lbl">Discount</td>
-                                <td class="val">- <?php echo $money($discount_amount); ?></td>
-                            </tr>
-                        <?php endif; ?>
-                        <?php if ($shipping_fee > 0): ?>
-                            <tr>
-                                <td class="lbl">Shipping</td>
-                                <td class="val"><?php echo $money($shipping_fee); ?></td>
-                            </tr>
-                        <?php endif; ?>
-                        <?php if ($taxAmount > 0 || $displayVatPercent > 0): ?>
-                            <tr>
-                                <td class="lbl">Tax (<?php echo number_format($displayVatPercent, 2); ?>%)</td>
-                                <td class="val"><?php echo $money($taxAmount); ?></td>
-                            </tr>
-                        <?php endif; ?>
-                        <?php endif; ?>
-                        <tr class="total-row">
-                            <td class="lbl">Total</td>
-                            <td class="val"><?php echo $money($total_amount); ?></td>
-                        </tr>
-                        <?php if ($paid_amount > 0): ?>
-                            <tr>
-                                <td class="lbl">Paid</td>
-                                <td class="val">- <?php echo $money($paid_amount); ?></td>
-                            </tr>
-                        <?php endif; ?>
-                        <?php if ($balance_amount > 0.005 || $paid_amount > 0): ?>
-                            <tr class="balance-row">
-                                <td class="lbl">Balance Due</td>
-                                <td class="val"><?php echo $money(max(0, $balance_amount)); ?></td>
-                            </tr>
-                        <?php endif; ?>
-                    </table>
-                </td>
-            </tr>
-        </table>
+                <?php if ($shipping_fee > 0): ?>
+                    <tr>
+                        <td class="lbl">Shipping</td>
+                        <td class="val"><?php echo $money($shipping_fee); ?></td>
+                    </tr>
+                <?php endif; ?>
+                <?php if ($taxAmount > 0 || $displayVatPercent > 0): ?>
+                    <tr>
+                        <td class="lbl">Tax (<?php echo number_format($displayVatPercent, 2); ?>%)</td>
+                        <td class="val"><?php echo $money($taxAmount); ?></td>
+                    </tr>
+                <?php endif; ?>
+                <?php endif; ?>
+                <tr class="total-row">
+                    <td class="lbl">Total</td>
+                    <td class="val"><?php echo $money($total_amount); ?></td>
+                </tr>
+                <?php if ($paid_amount > 0): ?>
+                    <tr>
+                        <td class="lbl">Paid</td>
+                        <td class="val">- <?php echo $money($paid_amount); ?></td>
+                    </tr>
+                <?php endif; ?>
+                <?php if ($balance_amount > 0.005 || $paid_amount > 0): ?>
+                    <tr class="balance-row">
+                        <td class="lbl">Balance Due</td>
+                        <td class="val"><?php echo $money(max(0, $balance_amount)); ?></td>
+                    </tr>
+                <?php endif; ?>
+            </table>
+        </div>
+     
     </div>
+    <?php if (!empty($layout['show_payment_details'])): ?>
+        <div class="payment-panel">
+            <div class="pd-label">Payment Accounts</div>
+            <?php if (!empty($settings['bank_name'])): ?>
+                <div class="pd-row"><strong>Bank:</strong> <?php echo htmlspecialchars($settings['bank_name']); ?></div>
+            <?php endif; ?>
+            <?php if (!empty($settings['account_number'])): ?>
+                <div class="pd-row"><strong>Account#:</strong> <?php echo htmlspecialchars($settings['account_number']); ?></div>
+            <?php endif; ?>
+            <?php if (!empty($settings['bank_branch'])): ?>
+                <div class="pd-row"><strong>Branch:</strong> <?php echo htmlspecialchars($settings['bank_branch']); ?></div>
+            <?php endif; ?>
+            <?php if (!empty($settings['swift_code'])): ?>
+                <div class="pd-row"><strong>SWIFT:</strong> <?php echo htmlspecialchars($settings['swift_code']); ?></div>
+            <?php endif; ?>
+            <?php if (!empty($settings['iban'])): ?>
+                <div class="pd-row"><strong>IBAN:</strong> <?php echo htmlspecialchars($settings['iban']); ?></div>
+            <?php endif; ?>
+            <div class="pd-row"><strong>Name:</strong> <?php echo htmlspecialchars($settings['business_name']); ?></div>
+            <div class="pd-row" style="margin-top: 6px; color: <?php echo $muted; ?>; font-size: 9.5px;">
+                Please reference invoice <strong><?php echo htmlspecialchars($invoice_number); ?></strong>
+                on all payments.
+            </div>
+        </div>
+        <?php endif; ?>
 
     <div class="rule-thin"></div>
 
@@ -838,19 +823,15 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
     <?php if (!empty($layout['show_signatures'])): ?>
     <div class="sig-wrap">
         <table class="sig-table">
-            <tr>
-                <td>
-                    <div class="sig-line"></div>
-                    <div class="sig-label"><?php echo htmlspecialchars((string) ($settings['signature1_title'] ?? 'Authorized Signature')); ?></div>
-                </td>
-                <td>
-                    <div class="sig-line"></div>
-                    <div class="sig-label"><?php echo htmlspecialchars((string) ($settings['signature2_title'] ?? 'Customer Signature')); ?></div>
-                </td>
-                <td>
-                    <div class="sig-line"></div>
-                    <div class="sig-label"><?php echo htmlspecialchars((string) ($settings['signature3_title'] ?? 'Date')); ?></div>
-                </td>
+            <tr class="sig-space-row">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+            </tr>
+            <tr class="sig-label-row">
+                <td><?php echo htmlspecialchars((string) ($settings['signature1_title'] ?? 'Authorized Signature')); ?></td>
+                <td><?php echo htmlspecialchars((string) ($settings['signature2_title'] ?? 'Customer Signature')); ?></td>
+                <td><?php echo htmlspecialchars((string) ($settings['signature3_title'] ?? 'Date')); ?></td>
             </tr>
         </table>
     </div>
@@ -909,9 +890,8 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
 <div class="bottom-deco">
     <table class="bottom-deco">
         <tr>
-            <td class="deco-light" style="width: 55%;">&nbsp;</td>
-            <td class="deco-slope">&nbsp;</td>
-            <td class="deco-dark">&nbsp;</td>
+            <td class="deco-light" style="width: 38%;">&nbsp;</td>
+            <td class="deco-dark" style="width: 62%;">&nbsp;</td>
         </tr>
     </table>
 </div>

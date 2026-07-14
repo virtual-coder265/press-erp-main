@@ -44,6 +44,11 @@ if ($redirectDepartment !== '') {
 if (!empty($result['next_department_slug']) && ($action ?? '') === 'dispatch') {
     $params[] = 'department=' . urlencode($result['next_department_slug']);
     $params[] = 'tab=incoming';
+} elseif (!empty($result['next_department_slug']) && ($action ?? '') === 'send_back') {
+    $params[] = 'department=' . urlencode($result['next_department_slug']);
+    $params[] = 'tab=active';
+} elseif (!empty($result['redirect_tab'])) {
+    $params[] = 'tab=' . urlencode($result['redirect_tab']);
 } elseif (($action ?? '') === 'dispatch') {
     $params[] = 'tab=sent';
 } elseif (($action ?? '') === 'complete') {

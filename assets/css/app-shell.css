@@ -532,6 +532,139 @@ button.bg-red-600.hover {
     transform: translateY(-1px);
 }
 
+/*
+ * Emerald palette polyfill.
+ * The vendored Tailwind 2.2.19 build used by this app does not include
+ * emerald utilities, so classes like bg-emerald-600 + text-white produce
+ * invisible white-on-white controls (e.g. Send to Origination).
+ */
+.bg-emerald-50 { background-color: #ecfdf5; }
+.bg-emerald-100 { background-color: #d1fae5; }
+.bg-emerald-200 { background-color: #a7f3d0; }
+.bg-emerald-400 { background-color: #34d399; }
+.bg-emerald-500 { background-color: #10b981; }
+.bg-emerald-600 { background-color: #059669; }
+.bg-emerald-700 { background-color: #047857; }
+.bg-emerald-800 { background-color: #065f46; }
+.bg-emerald-900 { background-color: #064e3b; }
+
+.text-emerald-200 { color: #a7f3d0; }
+.text-emerald-500 { color: #10b981; }
+.text-emerald-600 { color: #059669; }
+.text-emerald-700 { color: #047857; }
+.text-emerald-800 { color: #065f46; }
+.text-emerald-900 { color: #064e3b; }
+
+.border-emerald-100 { border-color: #d1fae5; }
+.border-emerald-200 { border-color: #a7f3d0; }
+.border-emerald-700 { border-color: #047857; }
+
+.from-emerald-50 { --tw-gradient-from: #ecfdf5; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(236, 253, 245, 0)); }
+
+.hover\:bg-emerald-50:hover { background-color: #ecfdf5; }
+.hover\:bg-emerald-100:hover { background-color: #d1fae5; }
+.hover\:bg-emerald-600:hover { background-color: #059669; }
+.hover\:bg-emerald-700:hover { background-color: #047857; }
+.hover\:text-emerald-700:hover { color: #047857; }
+.hover\:text-emerald-900:hover { color: #064e3b; }
+.hover\:border-emerald-200:hover { border-color: #a7f3d0; }
+
+a.bg-emerald-600,
+button.bg-emerald-600 {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(5, 150, 105, 0.28);
+    border: none;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+a.bg-emerald-600:hover,
+button.bg-emerald-600:hover,
+a.bg-emerald-700:hover,
+button.bg-emerald-700:hover,
+a.hover\:bg-emerald-700:hover,
+button.hover\:bg-emerald-700:hover {
+    background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+    color: #fff;
+    box-shadow: 0 14px 32px rgba(5, 150, 105, 0.32);
+    transform: translateY(-1px);
+}
+
+a.bg-emerald-700,
+button.bg-emerald-700 {
+    background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(4, 120, 87, 0.28);
+    border: none;
+    font-weight: 600;
+}
+
+/*
+ * Amber palette polyfill (also missing from the vendored Tailwind build).
+ * Fixes invisible white-on-white controls such as Edit traveler.
+ */
+.bg-amber-50 { background-color: #fffbeb; }
+.bg-amber-100 { background-color: #fef3c7; }
+.bg-amber-200 { background-color: #fde68a; }
+.bg-amber-300 { background-color: #fcd34d; }
+.bg-amber-400 { background-color: #fbbf24; }
+.bg-amber-500 { background-color: #f59e0b; }
+.bg-amber-600 { background-color: #d97706; }
+.bg-amber-700 { background-color: #b45309; }
+.bg-amber-800 { background-color: #92400e; }
+.bg-amber-900 { background-color: #78350f; }
+
+.text-amber-600 { color: #d97706; }
+.text-amber-700 { color: #b45309; }
+.text-amber-800 { color: #92400e; }
+.text-amber-900 { color: #78350f; }
+
+.border-amber-100 { border-color: #fef3c7; }
+.border-amber-200 { border-color: #fde68a; }
+.border-amber-300 { border-color: #fcd34d; }
+
+.hover\:bg-amber-50:hover { background-color: #fffbeb; }
+.hover\:bg-amber-100:hover { background-color: #fef3c7; }
+.hover\:bg-amber-200:hover { background-color: #fde68a; }
+.hover\:bg-amber-500:hover { background-color: #f59e0b; }
+.hover\:bg-amber-600:hover { background-color: #d97706; }
+.hover\:bg-amber-700:hover { background-color: #b45309; }
+.hover\:text-amber-700:hover { color: #b45309; }
+.hover\:text-amber-800:hover { color: #92400e; }
+.hover\:text-amber-900:hover { color: #78350f; }
+
+a.bg-amber-600,
+button.bg-amber-600 {
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(217, 119, 6, 0.28);
+    border: none;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+a.bg-amber-600:hover,
+button.bg-amber-600:hover,
+a.bg-amber-700:hover,
+button.bg-amber-700:hover,
+a.hover\:bg-amber-700:hover,
+button.hover\:bg-amber-700:hover {
+    background: linear-gradient(135deg, #b45309 0%, #92400e 100%);
+    color: #fff;
+    box-shadow: 0 14px 32px rgba(217, 119, 6, 0.32);
+    transform: translateY(-1px);
+}
+
+a.bg-amber-700,
+button.bg-amber-700 {
+    background: linear-gradient(135deg, #b45309 0%, #92400e 100%);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(180, 83, 9, 0.28);
+    border: none;
+    font-weight: 600;
+}
+
 .topbar-chip {
     display: inline-flex;
     align-items: center;
@@ -1752,4 +1885,389 @@ textarea:focus {
 
 .wo-workspace-filters button {
     white-space: nowrap;
+}
+
+/* Work order views — shared navigation, cards, and actions */
+.wo-page-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #4f46e5;
+    text-decoration: none;
+    padding: 0.4rem 0.65rem;
+    margin: 0 0 0.75rem;
+    border-radius: 0.65rem;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.wo-page-back:hover {
+    background: rgba(79, 70, 229, 0.08);
+    color: #4338ca;
+    text-decoration: none;
+}
+
+.wo-action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.wo-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.65rem 1rem;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    line-height: 1.25;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.wo-action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.1);
+}
+
+.wo-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.wo-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.wo-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.1);
+}
+
+.wo-btn-secondary {
+    background: #fff;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+
+.wo-btn-secondary:hover {
+    background: #f9fafb;
+}
+
+.wo-btn-danger {
+    background: #dc2626;
+    color: #fff;
+}
+
+.wo-btn-danger:hover {
+    background: #b91c1c;
+}
+
+.wo-step-track {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.wo-step-dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 9999px;
+    background: #d1d5db;
+    flex-shrink: 0;
+}
+
+.wo-step-dot.is-done {
+    background: #16a34a;
+}
+
+.wo-step-dot.is-current {
+    background: #4f46e5;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+}
+
+.wo-step-label {
+    font-size: 0.7rem;
+    color: #6b7280;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.wo-step-label.is-current {
+    color: #4338ca;
+}
+
+.wo-step-label.is-done {
+    color: #15803d;
+}
+
+.wo-job-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 1rem;
+    padding: 1.25rem;
+    background: #fff;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wo-job-card:hover {
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.wo-job-card.is-ready {
+    border-color: #86efac;
+    background: linear-gradient(180deg, #f0fdf4 0%, #fff 4rem);
+}
+
+.wo-receive-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: #374151;
+    background: #f3f4f6;
+    border-radius: 9999px;
+    padding: 0.25rem 0.65rem;
+}
+
+.wo-card-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    margin-top: 1rem;
+}
+
+.wo-card-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #4f46e5;
+    text-decoration: none;
+    padding: 0.25rem 0;
+}
+
+.wo-card-link:hover {
+    color: #4338ca;
+    text-decoration: underline;
+}
+
+.wo-card-actions {
+    width: 100%;
+    flex-shrink: 0;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.85rem;
+    padding: 1rem;
+}
+
+@media (min-width: 1024px) {
+    .wo-card-actions {
+        width: 17rem;
+    }
+}
+
+.wo-card-actions-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748b;
+    margin-bottom: 0.65rem;
+}
+
+.wo-primary-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 2.85rem;
+    padding: 0.7rem 1rem;
+    border-radius: 0.75rem;
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.wo-primary-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+    color: #fff;
+}
+
+.wo-primary-desc {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-top: 0.5rem;
+    line-height: 1.4;
+}
+
+.wo-secondary-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #e2e8f0;
+}
+
+.wo-secondary-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.35rem 0.65rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #475569;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.wo-secondary-btn:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.wo-secondary-btn.is-danger {
+    border-color: #fecaca;
+    color: #b91c1c;
+    background: #fff;
+}
+
+.wo-secondary-btn.is-danger:hover {
+    background: #fef2f2;
+    border-color: #fca5a5;
+}
+
+.wo-hold-field {
+    flex-basis: 100%;
+    width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.45rem 0.65rem;
+    font-size: 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+}
+
+.wo-tab-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.wo-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.55rem 1rem;
+    border-radius: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    color: #374151;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.wo-tab:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+    text-decoration: none;
+}
+
+.wo-tab.is-active {
+    background: #4f46e5;
+    border-color: #4f46e5;
+    color: #fff;
+}
+
+.wo-tab.is-ready.is-active {
+    background: #059669;
+    border-color: #059669;
+}
+
+.wo-tab.is-ready:not(.is-active) {
+    border-color: #a7f3d0;
+    color: #047857;
+    background: #ecfdf5;
+}
+
+.wo-tab.is-ready:not(.is-active):hover {
+    background: #d1fae5;
+}
+
+.wo-tab-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.35rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.wo-tab.is-active .wo-tab-count {
+    background: rgba(255, 255, 255, 0.22);
+}
+
+.wo-sent-badge {
+    border-radius: 0.75rem;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    padding: 1rem;
+    text-align: center;
+}
+
+.wo-cta-banner {
+    background: #fff;
+    border: 1px solid #a7f3d0;
+    border-radius: 1rem;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+@media (min-width: 640px) {
+    .wo-cta-banner {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+    }
 }

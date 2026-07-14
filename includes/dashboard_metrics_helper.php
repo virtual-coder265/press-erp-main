@@ -89,6 +89,9 @@ function dashboard_empty_summary_stats(): array
 
 function dashboard_fetch_summary_stats(PDO $pdo, int $viewerUserId = 0): array
 {
+    require_once __DIR__ . '/../libs/InvoiceAuditMigrator.php';
+    InvoiceAuditMigrator::ensure($pdo);
+
     $stats = dashboard_empty_summary_stats();
     $currentMonth = dashboard_month_window(0);
     $prevMonth = dashboard_month_window(-1);

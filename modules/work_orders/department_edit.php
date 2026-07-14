@@ -58,8 +58,8 @@ include '../../includes/header.php';
 ?>
 
 <div class="mb-6">
-    <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>" class="text-indigo-600 hover:underline inline-flex items-center text-sm">
-        <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
+    <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>" class="wo-page-back">
+        <i data-lucide="arrow-left" class="h-4 w-4" aria-hidden="true"></i>
         Back to <?php echo wo_dept_field($department['name'] ?? 'department'); ?> workspace
     </a>
 </div>

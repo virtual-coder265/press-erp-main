@@ -86,6 +86,9 @@ class EstimationAuditMigrator
                     $pdo->exec("ALTER TABLE `estimations` ADD COLUMN `{$col}` {$definition}");
                 }
             }
+
+            require_once __DIR__ . '/MoneySchemaMigrator.php';
+            MoneySchemaMigrator::ensure($pdo);
         } catch (Throwable $e) {
             // Never let the migrator break the page render; just log it.
             error_log('EstimationAuditMigrator failed: ' . $e->getMessage());

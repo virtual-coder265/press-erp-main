@@ -69,8 +69,8 @@ include '../../includes/header.php';
 
 <div class="mb-6">
     <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>&tab=<?php echo $canHandoff ? $readyTab : 'active'; ?>"
-        class="text-indigo-600 hover:underline inline-flex items-center text-sm">
-        <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
+        class="wo-page-back">
+        <i data-lucide="arrow-left" class="h-4 w-4" aria-hidden="true"></i>
         Back to <?php echo htmlspecialchars($context['department_name']); ?> workspace
     </a>
 </div>
@@ -91,7 +91,8 @@ include '../../includes/header.php';
             <?php endif; ?>
         </p>
         <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>&tab=active"
-            class="inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-3 rounded-lg hover:bg-indigo-700 transition">
+            class="wo-action-btn bg-indigo-600 text-white hover:bg-indigo-700">
+            <i data-lucide="layout-grid" class="h-4 w-4" aria-hidden="true"></i>
             Return to workspace
         </a>
     </div>
@@ -120,13 +121,16 @@ include '../../includes/header.php';
                 <?php endif; ?>
                 <div class="sm:col-span-2"><dt class="text-gray-500">Job description</dt><dd class="text-gray-900 mt-1"><?php echo htmlspecialchars($context['job_description'] ?: '—'); ?></dd></div>
             </dl>
-            <div class="mt-4 pt-4 border-t flex flex-wrap gap-3">
+            <div class="mt-4 pt-4 border-t wo-card-links">
                 <a href="department_edit?department=<?php echo urlencode($departmentSlug); ?>&id=<?php echo (int) $context['work_order_id']; ?>"
-                    class="text-sm text-indigo-600 hover:underline">
+                    class="wo-card-link">
+                    <i data-lucide="pencil-line" class="h-4 w-4" aria-hidden="true"></i>
                     <?php echo $isRouting ? 'Edit origination record' : 'Review / edit section fields'; ?>
                 </a>
-                <a href="view?id=<?php echo (int) $context['work_order_id']; ?>"
-                    class="text-sm text-indigo-600 hover:underline">Open full work order</a>
+                <a href="view?id=<?php echo (int) $context['work_order_id']; ?>" class="wo-card-link">
+                    <i data-lucide="file-text" class="h-4 w-4" aria-hidden="true"></i>
+                    Open full work order
+                </a>
             </div>
         </div>
 
@@ -181,13 +185,13 @@ include '../../includes/header.php';
                     class="w-full px-4 py-3 border border-gray-300 rounded-lg resize-y"></textarea>
             </div>
 
-            <div class="flex flex-col sm:flex-row gap-3 sm:justify-end">
+            <div class="wo-form-actions sm:justify-end">
                 <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>&tab=<?php echo $readyTab; ?>"
-                    class="px-5 py-3 rounded-lg border border-gray-300 text-gray-700 text-center hover:bg-gray-50 transition">
+                    class="wo-btn wo-btn-secondary">
                     Cancel
                 </a>
                 <button type="submit" <?php echo empty($destinations) ? 'disabled' : ''; ?>
-                    class="px-6 py-3 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition inline-flex items-center justify-center gap-2 shadow-sm disabled:opacity-50">
+                    class="wo-btn bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
                     <i data-lucide="send" class="h-5 w-5" aria-hidden="true"></i>
                     Confirm designation &amp; send
                 </button>

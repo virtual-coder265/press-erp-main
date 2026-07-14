@@ -843,7 +843,64 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
         'href' => (string) ($dashboardWorkOrderModule['href'] ?? ''),
         'slug' => (string) ($dashboardWorkOrderModule['slug'] ?? ''),
         'summary' => 'Track and manage production job workflows.',
+        'active' => 0,
+        'in_production' => 0,
+        'awaiting_dispatch' => 0,
+        'completed' => 0,
+        'overdue' => 0,
+        'urgent' => 0,
+        'total' => 0,
     ];
+    if (!empty($dashboardWorkOrdersPanel['available'])) {
+        try {
+            $workOrderKpiStmt = $pdo->query(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN status NOT IN ('Completed', 'Cancelled') THEN 1 ELSE 0 END), 0) AS active_count,
+                    COALESCE(SUM(CASE WHEN status = 'In Production' THEN 1 ELSE 0 END), 0) AS in_production,
+                    COALESCE(SUM(CASE WHEN status = 'Awaiting Dispatch' THEN 1 ELSE 0 END), 0) AS awaiting_dispatch,
+                    COALESCE(SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END), 0) AS completed,
+                    COALESCE(SUM(CASE
+                        WHEN due_date IS NOT NULL
+                             AND due_date < CURDATE()
+                             AND status NOT IN ('Completed', 'Cancelled')
+                        THEN 1 ELSE 0 END), 0) AS overdue_count,
+                    COALESCE(SUM(CASE
+                        WHEN priority IN ('Urgent', 'Critical')
+                             AND status NOT IN ('Completed', 'Cancelled')
+                        THEN 1 ELSE 0 END), 0) AS urgent_count,
+                    COUNT(*) AS total
+                 FROM work_orders"
+            );
+            $workOrderKpiRow = $workOrderKpiStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $dashboardWorkOrdersPanel['active'] = (int) ($workOrderKpiRow['active_count'] ?? 0);
+            $dashboardWorkOrdersPanel['in_production'] = (int) ($workOrderKpiRow['in_production'] ?? 0);
+            $dashboardWorkOrdersPanel['awaiting_dispatch'] = (int) ($workOrderKpiRow['awaiting_dispatch'] ?? 0);
+            $dashboardWorkOrdersPanel['completed'] = (int) ($workOrderKpiRow['completed'] ?? 0);
+            $dashboardWorkOrdersPanel['overdue'] = (int) ($workOrderKpiRow['overdue_count'] ?? 0);
+            $dashboardWorkOrdersPanel['urgent'] = (int) ($workOrderKpiRow['urgent_count'] ?? 0);
+            $dashboardWorkOrdersPanel['total'] = (int) ($workOrderKpiRow['total'] ?? 0);
+
+            $summaryParts = [];
+            if ($dashboardWorkOrdersPanel['in_production'] > 0) {
+                $summaryParts[] = number_format($dashboardWorkOrdersPanel['in_production']) . ' in production';
+            }
+            if ($dashboardWorkOrdersPanel['awaiting_dispatch'] > 0) {
+                $summaryParts[] = number_format($dashboardWorkOrdersPanel['awaiting_dispatch']) . ' awaiting dispatch';
+            }
+            if ($dashboardWorkOrdersPanel['overdue'] > 0) {
+                $summaryParts[] = number_format($dashboardWorkOrdersPanel['overdue']) . ' overdue';
+            }
+            $dashboardWorkOrdersPanel['summary'] = !empty($summaryParts)
+                ? implode(' · ', $summaryParts)
+                : (
+                    $dashboardWorkOrdersPanel['active'] > 0
+                        ? number_format($dashboardWorkOrdersPanel['active']) . ' open work orders'
+                        : 'No open production jobs right now.'
+                );
+        } catch (Throwable $exception) {
+            // Keep defaults when the work-order schema is unavailable.
+        }
+    }
     $dashboardOpenInvoiceCount = 0;
     $dashboardOverdueInvoiceCount = 0;
     $dashboardDueTodayCount = 0;
@@ -1232,11 +1289,35 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
     }
 
     if (!empty($dashboardWorkOrdersPanel['available'])) {
+        $workOrderOverdue = (int) ($dashboardWorkOrdersPanel['overdue'] ?? 0);
+        $workOrderUrgent = (int) ($dashboardWorkOrdersPanel['urgent'] ?? 0);
+        $workOrderInProduction = (int) ($dashboardWorkOrdersPanel['in_production'] ?? 0);
+        $workOrderAwaitingDispatch = (int) ($dashboardWorkOrdersPanel['awaiting_dispatch'] ?? 0);
+        $workOrderActive = (int) ($dashboardWorkOrdersPanel['active'] ?? 0);
+        if ($workOrderOverdue > 0) {
+            $workOrderNote = number_format($workOrderOverdue) . ' overdue';
+            $workOrderTone = 'danger';
+        } elseif ($workOrderUrgent > 0) {
+            $workOrderNote = number_format($workOrderUrgent) . ' urgent';
+            $workOrderTone = 'warning';
+        } elseif ($workOrderInProduction > 0) {
+            $workOrderNote = number_format($workOrderInProduction) . ' in production';
+            $workOrderTone = 'warning';
+        } elseif ($workOrderAwaitingDispatch > 0) {
+            $workOrderNote = number_format($workOrderAwaitingDispatch) . ' awaiting dispatch';
+            $workOrderTone = 'neutral';
+        } else {
+            $workOrderNote = $workOrderActive > 0
+                ? number_format($workOrderActive) . ' open jobs'
+                : 'No open production jobs';
+            $workOrderTone = 'success';
+        }
+
         $dashboardPrimaryCards[] = [
-            'label' => 'Work Orders',
-            'value' => 'Module live',
-            'note' => 'Open the work order workspace',
-            'tone' => 'neutral',
+            'label' => 'Active Work Orders',
+            'value' => number_format($workOrderActive),
+            'note' => $workOrderNote,
+            'tone' => $workOrderTone,
             'icon' => 'briefcase',
             'href' => (string) ($dashboardWorkOrdersPanel['href'] ?? ''),
             'target' => '',

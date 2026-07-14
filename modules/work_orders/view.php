@@ -77,8 +77,8 @@ include '../../includes/header.php';
 ?>
 
 <div class="mb-6">
-    <a href="list" class="text-indigo-600 hover:underline inline-flex items-center text-sm">
-        <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
+    <a href="list" class="wo-page-back">
+        <i data-lucide="arrow-left" class="h-4 w-4" aria-hidden="true"></i>
         Back to work orders
     </a>
 </div>
@@ -107,21 +107,21 @@ include '../../includes/header.php';
                 <p class="mt-2 text-sm text-gray-500">Sent to Origination: <?php echo htmlspecialchars($workOrder['sent_to_origination_at']); ?></p>
             <?php endif; ?>
         </div>
-        <div class="flex flex-wrap gap-2">
+        <div class="wo-action-bar">
             <?php if (hasPermission('manage_work_orders')): ?>
-                <a href="edit?id=<?php echo (int) $workOrder['id']; ?>" class="inline-flex items-center gap-1 bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition">
+                <a href="edit?id=<?php echo (int) $workOrder['id']; ?>" class="wo-action-btn bg-amber-600 text-white hover:bg-amber-700">
                     <i data-lucide="pencil" class="h-4 w-4" aria-hidden="true"></i> Edit traveler
                 </a>
             <?php endif; ?>
-            <a href="<?php echo BASE_URL; ?>modules/invoices/view?id=<?php echo (int) $workOrder['invoice_id']; ?>" class="inline-flex items-center gap-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+            <a href="<?php echo BASE_URL; ?>modules/invoices/view?id=<?php echo (int) $workOrder['invoice_id']; ?>" class="wo-action-btn bg-blue-600 text-white hover:bg-blue-700">
                 <i data-lucide="receipt" class="h-4 w-4" aria-hidden="true"></i> Invoice
             </a>
             <?php if ($currentRouteSlug !== ''): ?>
-            <a href="workspace?department=<?php echo urlencode($currentRouteSlug); ?>" class="inline-flex items-center gap-1 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">
-                <i data-lucide="list-checks" class="h-4 w-4" aria-hidden="true"></i> Queue
+            <a href="workspace?department=<?php echo urlencode($currentRouteSlug); ?>" class="wo-action-btn bg-indigo-600 text-white hover:bg-indigo-700">
+                <i data-lucide="layout-grid" class="h-4 w-4" aria-hidden="true"></i> Queue
             </a>
             <?php endif; ?>
-            <a href="timeline?id=<?php echo (int) $workOrder['id']; ?>" class="inline-flex items-center gap-1 bg-slate-700 text-white px-4 py-2 rounded-lg hover:bg-slate-800 transition">
+            <a href="timeline?id=<?php echo (int) $workOrder['id']; ?>" class="wo-action-btn bg-slate-700 text-white hover:bg-slate-800">
                 <i data-lucide="history" class="h-4 w-4" aria-hidden="true"></i> Timeline
             </a>
         </div>
@@ -129,24 +129,24 @@ include '../../includes/header.php';
 </div>
 
 <?php if (work_order_can_send_to_origination($workOrder) && hasPermission('manage_work_orders')): ?>
-    <div class="bg-white shadow rounded-xl p-5 mb-6 border border-emerald-200">
-        <p class="text-sm text-gray-600 mb-4">This work order is ready to leave costing. Send it to Origination to begin production routing.</p>
+    <div class="wo-cta-banner">
+        <p class="text-sm text-gray-700">This work order is ready to leave costing. Send it to Origination to begin production routing.</p>
         <form method="POST" action="send_to_origination">
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token('work_order_send_origination')); ?>">
             <input type="hidden" name="work_order_id" value="<?php echo (int) $workOrder['id']; ?>">
-            <button type="submit" class="inline-flex items-center justify-center gap-2 w-full sm:w-auto bg-emerald-600 text-white px-6 py-3 rounded-lg hover:bg-emerald-700 transition font-semibold">
+            <button type="submit" class="wo-action-btn bg-emerald-600 text-white hover:bg-emerald-700 w-full sm:w-auto">
                 <i data-lucide="send" class="h-5 w-5" aria-hidden="true"></i> Send to Origination
             </button>
         </form>
     </div>
 <?php elseif ($canDesignateSend && $designateProgressId > 0): ?>
-    <div class="bg-white shadow rounded-xl p-5 mb-6 border border-emerald-200">
-        <p class="text-sm text-gray-600 mb-4">
-            This work order is ready to leave <strong><?php echo htmlspecialchars($designateDepartmentName); ?></strong>.
+    <div class="wo-cta-banner">
+        <p class="text-sm text-gray-700">
+            Ready to leave <strong><?php echo htmlspecialchars($designateDepartmentName); ?></strong>.
             Choose the next section and confirm the handoff.
         </p>
         <a href="handoff?progress_id=<?php echo $designateProgressId; ?>"
-            class="inline-flex items-center justify-center gap-2 w-full sm:w-auto bg-emerald-600 text-white px-6 py-3 rounded-lg hover:bg-emerald-700 transition font-semibold">
+            class="wo-action-btn bg-emerald-600 text-white hover:bg-emerald-700 w-full sm:w-auto">
             <i data-lucide="send" class="h-5 w-5" aria-hidden="true"></i> Designate &amp; send
         </a>
     </div>
@@ -160,7 +160,7 @@ include '../../includes/header.php';
             <div><dt class="text-gray-500">Email</dt><dd class="text-gray-800"><?php echo htmlspecialchars($workOrder['customer_email'] ?: '—'); ?></dd></div>
             <div><dt class="text-gray-500">Phone</dt><dd class="text-gray-800"><?php echo htmlspecialchars($workOrder['customer_phone'] ?: '—'); ?></dd></div>
             <div><dt class="text-gray-500">Payment state</dt><dd class="text-gray-800"><?php echo htmlspecialchars($workOrder['payment_status']); ?></dd></div>
-            <div><dt class="text-gray-500">Outstanding balance</dt><dd class="text-gray-800 font-semibold">MK <?php echo number_format((float) ($workOrder['balance_snapshot'] ?? $workOrder['balance'] ?? 0), 2); ?></dd></div>
+            <div><dt class="text-gray-500">Outstanding balance</dt><dd class="text-gray-800 font-semibold">MK <?php echo number_format((float) ($workOrder['balance'] ?? $workOrder['balance_snapshot'] ?? 0), 2); ?></dd></div>
             <div><dt class="text-gray-500">Costed by</dt><dd class="text-gray-800"><?php echo htmlspecialchars($workOrder['costed_by_name'] ?: '—'); ?></dd></div>
             <div><dt class="text-gray-500">Issued by</dt><dd class="text-gray-800"><?php echo htmlspecialchars($workOrder['issued_by_name'] ?: '—'); ?></dd></div>
             <?php if (!empty($workOrder['binding_type_name']) || !empty($workOrder['binding_catalog_name'])): ?>
@@ -231,7 +231,9 @@ include '../../includes/header.php';
                 <div class="border border-gray-200 rounded-lg p-4">
                     <div class="flex items-center justify-between gap-3">
                         <p class="font-semibold text-gray-900"><?php echo htmlspecialchars($entry['delivery_note_number'] ?: 'Dispatch record'); ?></p>
-                        <a href="<?php echo BASE_URL; ?>modules/dispatch/view?id=<?php echo (int) $entry['id']; ?>" class="text-sm text-green-600 hover:underline">Open</a>
+                        <a href="<?php echo BASE_URL; ?>modules/dispatch/view?id=<?php echo (int) $entry['id']; ?>" class="wo-card-link">
+                            <i data-lucide="external-link" class="h-4 w-4" aria-hidden="true"></i> Open dispatch record
+                        </a>
                     </div>
                     <p class="text-sm text-gray-600 mt-1"><?php echo htmlspecialchars($entry['remarks'] ?: 'No remarks'); ?></p>
                     <p class="text-xs text-gray-400 mt-2">Collected by: <?php echo htmlspecialchars($entry['collected_by_name'] ?: 'Pending'); ?></p>

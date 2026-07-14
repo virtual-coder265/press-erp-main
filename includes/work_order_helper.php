@@ -274,9 +274,9 @@ if (!function_exists('work_order_ensure_schema')) {
                 'trim_margins_json' => "ALTER TABLE `work_orders` ADD COLUMN `trim_margins_json` TEXT DEFAULT NULL AFTER `forme_dressing_json`",
                 'costed_by' => "ALTER TABLE `work_orders` ADD COLUMN `costed_by` INT DEFAULT NULL AFTER `accepted_by`",
                 'issued_by' => "ALTER TABLE `work_orders` ADD COLUMN `issued_by` INT DEFAULT NULL AFTER `costed_by`",
-                'total_cost_snapshot' => "ALTER TABLE `work_orders` ADD COLUMN `total_cost_snapshot` DECIMAL(12,2) DEFAULT NULL AFTER `issued_by`",
-                'amount_paid_snapshot' => "ALTER TABLE `work_orders` ADD COLUMN `amount_paid_snapshot` DECIMAL(12,2) DEFAULT NULL AFTER `total_cost_snapshot`",
-                'balance_snapshot' => "ALTER TABLE `work_orders` ADD COLUMN `balance_snapshot` DECIMAL(12,2) DEFAULT NULL AFTER `amount_paid_snapshot`",
+                'total_cost_snapshot' => "ALTER TABLE `work_orders` ADD COLUMN `total_cost_snapshot` DECIMAL(15,2) DEFAULT NULL AFTER `issued_by`",
+                'amount_paid_snapshot' => "ALTER TABLE `work_orders` ADD COLUMN `amount_paid_snapshot` DECIMAL(15,2) DEFAULT NULL AFTER `total_cost_snapshot`",
+                'balance_snapshot' => "ALTER TABLE `work_orders` ADD COLUMN `balance_snapshot` DECIMAL(15,2) DEFAULT NULL AFTER `amount_paid_snapshot`",
                 'sent_to_origination_at' => "ALTER TABLE `work_orders` ADD COLUMN `sent_to_origination_at` DATETIME DEFAULT NULL AFTER `balance_snapshot`",
                 'sent_to_origination_by' => "ALTER TABLE `work_orders` ADD COLUMN `sent_to_origination_by` INT DEFAULT NULL AFTER `sent_to_origination_at`",
             ];
@@ -463,6 +463,8 @@ if (!function_exists('work_order_bootstrap')) {
             return;
         }
         work_order_ensure_schema($pdo);
+        require_once __DIR__ . '/../libs/MoneySchemaMigrator.php';
+        MoneySchemaMigrator::ensure($pdo);
         $bootstrapped = true;
     }
 }
@@ -1227,7 +1229,7 @@ if (!function_exists('work_order_sync_payment_status')) {
     function work_order_sync_payment_status(PDO $pdo, int $workOrderId): void
     {
         $stmt = $pdo->prepare("
-            SELECT wo.id, i.paid_amount, i.balance
+            SELECT wo.id, i.total_amount, i.paid_amount, i.balance
             FROM work_orders wo
             INNER JOIN invoices i ON wo.invoice_id = i.id
             WHERE wo.id = ?
@@ -1246,7 +1248,20 @@ if (!function_exists('work_order_sync_payment_status')) {
             $paymentStatus = 'Partially Paid';
         }
 
-        $pdo->prepare("UPDATE work_orders SET payment_status = ? WHERE id = ?")->execute([$paymentStatus, $workOrderId]);
+        $pdo->prepare("
+            UPDATE work_orders
+            SET payment_status = ?,
+                total_cost_snapshot = ?,
+                amount_paid_snapshot = ?,
+                balance_snapshot = ?
+            WHERE id = ?
+        ")->execute([
+            $paymentStatus,
+            $row['total_amount'],
+            $row['paid_amount'],
+            $row['balance'],
+            $workOrderId,
+        ]);
     }
 }
 
@@ -1792,9 +1807,246 @@ if (!function_exists('work_order_department_form_section')) {
     }
 }
 
+if (!function_exists('work_order_fetch_dispatch_register_link')) {
+    function work_order_fetch_dispatch_register_link(PDO $pdo, int $workOrderId): ?array
+    {
+        if (!work_order_table_exists($pdo, 'dispatch_register')) {
+            return null;
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT id, date_out, delivery_note_number, collected_at
+            FROM dispatch_register
+            WHERE work_order_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$workOrderId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row ?: null;
+    }
+}
+
+if (!function_exists('work_order_find_send_back_department')) {
+    function work_order_find_send_back_department(PDO $pdo, int $workOrderId, int $dispatchDepartmentId): ?array
+    {
+        $movementStmt = $pdo->prepare("
+            SELECT fd.id, fd.slug, fd.name, fd.queue_label, fd.workflow_mode
+            FROM production_movements pm
+            INNER JOIN production_departments fd ON pm.from_department_id = fd.id
+            WHERE pm.work_order_id = ?
+              AND pm.to_department_id = ?
+              AND pm.movement_type = 'dispatch'
+              AND pm.from_department_id IS NOT NULL
+              AND pm.from_department_id <> ?
+            ORDER BY pm.created_at DESC, pm.id DESC
+            LIMIT 1
+        ");
+        $movementStmt->execute([$workOrderId, $dispatchDepartmentId, $dispatchDepartmentId]);
+        $fromMovement = $movementStmt->fetch(PDO::FETCH_ASSOC);
+        if ($fromMovement) {
+            return $fromMovement;
+        }
+
+        $routeStmt = $pdo->prepare("
+            SELECT pd.id, pd.slug, pd.name, pd.queue_label, pd.workflow_mode
+            FROM production_routes pr
+            INNER JOIN production_departments pd ON pr.department_id = pd.id
+            WHERE pr.work_order_id = ?
+              AND pd.id <> ?
+            ORDER BY pr.sequence_no DESC, pr.id DESC
+            LIMIT 1
+        ");
+        $routeStmt->execute([$workOrderId, $dispatchDepartmentId]);
+        $routeRow = $routeStmt->fetch(PDO::FETCH_ASSOC);
+
+        return $routeRow ?: null;
+    }
+}
+
+if (!function_exists('work_order_send_back_to_sender')) {
+    function work_order_send_back_to_sender(
+        PDO $pdo,
+        int $progressId,
+        int $userId,
+        string $remarks = ''
+    ): array {
+        work_order_bootstrap($pdo);
+
+        $stmt = $pdo->prepare("
+            SELECT pp.*, pr.sequence_no, pr.work_order_id, pr.department_id, pr.id AS route_id,
+                   pd.name AS department_name, pd.slug AS department_slug,
+                   pd.workflow_mode AS department_workflow_mode,
+                   wo.work_order_number, wo.status AS work_order_status
+            FROM production_progress pp
+            INNER JOIN production_routes pr ON pp.route_id = pr.id
+            INNER JOIN production_departments pd ON pp.department_id = pd.id
+            INNER JOIN work_orders wo ON pp.work_order_id = wo.id
+            WHERE pp.id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$progressId]);
+        $progress = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$progress) {
+            throw new RuntimeException('Queue item not found.');
+        }
+
+        $workflowMode = (string) ($progress['department_workflow_mode'] ?? 'production');
+        if ($workflowMode !== 'dispatch') {
+            throw new RuntimeException('Send back is only available from the Dispatch Office queue.');
+        }
+
+        $progressStatus = (string) ($progress['status'] ?? '');
+        if (!in_array($progressStatus, ['Received', 'On Hold'], true)) {
+            throw new RuntimeException('Only jobs received at dispatch can be sent back to the sender.');
+        }
+
+        $dispatchDepartmentId = (int) $progress['department_id'];
+        $senderDepartment = work_order_find_send_back_department(
+            $pdo,
+            (int) $progress['work_order_id'],
+            $dispatchDepartmentId
+        );
+        if (!$senderDepartment) {
+            throw new RuntimeException('Unable to determine which department sent this job to dispatch.');
+        }
+
+        $senderDepartmentId = (int) $senderDepartment['id'];
+        $senderRouteStmt = $pdo->prepare("
+            SELECT pr.id AS route_id, pp.id AS progress_id, pp.status
+            FROM production_routes pr
+            LEFT JOIN production_progress pp ON pp.route_id = pr.id
+            WHERE pr.work_order_id = ?
+              AND pr.department_id = ?
+            ORDER BY pr.sequence_no DESC, pr.id DESC
+            LIMIT 1
+        ");
+        $senderRouteStmt->execute([(int) $progress['work_order_id'], $senderDepartmentId]);
+        $senderRoute = $senderRouteStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$senderRoute) {
+            throw new RuntimeException('Sender department route not found for this work order.');
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare("
+                UPDATE production_progress
+                SET status = 'Dispatched',
+                    designated_next_department_id = ?,
+                    dispatched_at = NOW(),
+                    updated_by = ?,
+                    remarks = ?
+                WHERE id = ?
+            ")->execute([
+                $senderDepartmentId,
+                $userId,
+                $remarks !== '' ? $remarks : ($progress['remarks'] ?? null),
+                $progressId,
+            ]);
+
+            $pdo->prepare("UPDATE production_routes SET route_status = 'Completed' WHERE id = ?")
+                ->execute([(int) $progress['route_id']]);
+
+            $pdo->prepare("UPDATE production_routes SET route_status = 'Active' WHERE id = ?")
+                ->execute([(int) $senderRoute['route_id']]);
+
+            if (!empty($senderRoute['progress_id'])) {
+                $pdo->prepare("
+                    UPDATE production_progress
+                    SET status = 'Received',
+                        dispatched_at = NULL,
+                        designated_next_department_id = NULL,
+                        updated_by = ?,
+                        remarks = ?
+                    WHERE id = ?
+                ")->execute([
+                    $userId,
+                    $remarks !== '' ? $remarks : null,
+                    (int) $senderRoute['progress_id'],
+                ]);
+            } else {
+                $pdo->prepare("
+                    INSERT INTO production_progress (work_order_id, route_id, department_id, status, remarks, updated_by)
+                    VALUES (?, ?, ?, 'Received', ?, ?)
+                ")->execute([
+                    (int) $progress['work_order_id'],
+                    (int) $senderRoute['route_id'],
+                    $senderDepartmentId,
+                    $remarks !== '' ? $remarks : null,
+                    $userId,
+                ]);
+            }
+
+            $pdo->prepare("
+                UPDATE work_orders
+                SET current_department_id = ?, updated_by = ?
+                WHERE id = ?
+            ")->execute([$senderDepartmentId, $userId, (int) $progress['work_order_id']]);
+
+            $movementRemarks = $remarks !== ''
+                ? $remarks
+                : ('Returned to ' . ($senderDepartment['name'] ?? 'sender department') . ' for correction.');
+
+            $pdo->prepare("
+                INSERT INTO production_movements (
+                    work_order_id, from_department_id, to_department_id, sender_user_id, movement_type, remarks
+                ) VALUES (?, ?, ?, ?, 'send_back', ?)
+            ")->execute([
+                (int) $progress['work_order_id'],
+                $dispatchDepartmentId,
+                $senderDepartmentId,
+                $userId,
+                $movementRemarks,
+            ]);
+
+            require_once __DIR__ . '/../libs/WorkOrderStatusManager.php';
+            $statusManager = new WorkOrderStatusManager($pdo);
+            $statusResult = $statusManager->changeStatus(
+                (int) $progress['work_order_id'],
+                WorkOrderStatusManager::STATUS_IN_PRODUCTION,
+                $userId,
+                'Work order sent back from Dispatch Office to ' . ($senderDepartment['name'] ?? 'sender') . '.'
+            );
+            if (empty($statusResult['success'])) {
+                throw new RuntimeException((string) ($statusResult['message'] ?? 'Unable to update work order status.'));
+            }
+
+            work_order_recalculate_state($pdo, (int) $progress['work_order_id'], $userId);
+            $pdo->commit();
+
+            return [
+                'work_order_id' => (int) $progress['work_order_id'],
+                'department_slug' => (string) ($progress['department_slug'] ?? ''),
+                'next_department_slug' => (string) ($senderDepartment['slug'] ?? ''),
+                'next_department_name' => (string) ($senderDepartment['name'] ?? ''),
+                'message' => ($progress['department_name'] ?? 'Dispatch Office')
+                    . ' sent ' . ($progress['work_order_number'] ?? 'work order')
+                    . ' back to ' . ($senderDepartment['name'] ?? 'sender department') . '.',
+            ];
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $exception;
+        }
+    }
+}
+
 if (!function_exists('work_order_allowed_queue_actions')) {
     function work_order_allowed_queue_actions(string $progressStatus, bool $hasNextDepartment, string $workflowMode = 'production'): array
     {
+        if ($workflowMode === 'dispatch') {
+            return match ($progressStatus) {
+                'Pending' => [],
+                'Received' => ['hold', 'send_back'],
+                'On Hold' => ['resume', 'send_back'],
+                'Returned' => [],
+                'Dispatched' => [],
+                default => [],
+            };
+        }
+
         if ($workflowMode === 'routing') {
             return match ($progressStatus) {
                 'Pending' => [],
@@ -1828,8 +2080,53 @@ if (!function_exists('work_order_primary_workspace_action')) {
         string $workflowMode = 'production',
         int $progressId = 0,
         int $workOrderId = 0,
-        string $departmentSlug = ''
+        string $departmentSlug = '',
+        ?array $dispatchRegister = null
     ): ?array {
+        if ($workflowMode === 'dispatch') {
+            if ($progressStatus === 'Received') {
+                if (!empty($dispatchRegister['date_out'])) {
+                    return null;
+                }
+
+                if (!empty($dispatchRegister['id'])) {
+                    return [
+                        'type' => 'dispatch_record',
+                        'dispatch_id' => (int) $dispatchRegister['id'],
+                        'label' => 'Open dispatch record',
+                        'description' => 'Continue the send-off record in the Dispatch Register.',
+                        'button_class' => 'bg-green-600 hover:bg-green-700',
+                    ];
+                }
+
+                return [
+                    'type' => 'dispatch_record',
+                    'work_order_id' => $workOrderId,
+                    'label' => 'Record dispatch',
+                    'description' => 'Start the send-off record for pickup or delivery.',
+                    'button_class' => 'bg-green-600 hover:bg-green-700',
+                ];
+            }
+
+            return match ($progressStatus) {
+                'Pending' => [
+                    'type' => 'receive_page',
+                    'progress_id' => $progressId,
+                    'label' => 'Receive job',
+                    'description' => 'Confirm the job has arrived and is ready for dispatch review.',
+                    'button_class' => 'bg-blue-600 hover:bg-blue-700',
+                ],
+                'On Hold' => [
+                    'type' => 'queue',
+                    'action' => 'resume',
+                    'label' => 'Resume',
+                    'description' => 'Return this job to the dispatch queue.',
+                    'button_class' => 'bg-amber-600 hover:bg-amber-700',
+                ],
+                default => null,
+            };
+        }
+
         if ($workflowMode === 'routing') {
             return match ($progressStatus) {
                 'Pending' => [
@@ -1918,7 +2215,11 @@ if (!function_exists('work_order_primary_workspace_action')) {
 if (!function_exists('work_order_workspace_steps')) {
     function work_order_workspace_steps(string $progressStatus, string $workflowMode = 'production'): array
     {
-        if ($workflowMode === 'routing') {
+        if ($workflowMode === 'dispatch') {
+            $labels = ['Receive', 'Ready', 'Dispatch'];
+            $order = ['Pending' => 0, 'Received' => 1, 'On Hold' => 1, 'Dispatched' => 3];
+            $current = $order[$progressStatus] ?? 0;
+        } elseif ($workflowMode === 'routing') {
             $labels = ['Receive', 'Record', 'Send'];
             $order = ['Pending' => 0, 'Received' => 1, 'Dispatched' => 3];
             $current = $order[$progressStatus] ?? 0;
@@ -1994,6 +2295,21 @@ if (!function_exists('work_order_fetch_department_queue')) {
             $workflowMode = (string) ($deptMeta['workflow_mode'] ?? 'production');
         }
 
+        $dispatchRegisterSelect = '';
+        $dispatchRegisterJoin = '';
+        if ($departmentSlug === 'dispatch-office' && work_order_table_exists($pdo, 'dispatch_register')) {
+            $dispatchRegisterSelect = ",
+                   dr.id AS dispatch_register_id, dr.date_out AS dispatch_date_out,
+                   dr.delivery_note_number AS dispatch_delivery_note_number";
+            $dispatchRegisterJoin = "
+            LEFT JOIN dispatch_register dr ON dr.work_order_id = wo.id
+                AND dr.id = (
+                    SELECT MAX(dr2.id)
+                    FROM dispatch_register dr2
+                    WHERE dr2.work_order_id = wo.id
+                )";
+        }
+
         $query = "
             SELECT pp.id AS progress_id, pp.status AS progress_status, pp.received_at, pp.received_quantity,
                    pp.receive_notes, pp.started_at, pp.completed_at, pp.dispatched_at, pp.remarks, pp.hold_reason,
@@ -2005,12 +2321,14 @@ if (!function_exists('work_order_fetch_department_queue')) {
                    pr.id AS route_id, pr.sequence_no, pr.route_status,
                    rb.name AS received_by_name,
                    nd.name AS designated_next_department_name
+                   {$dispatchRegisterSelect}
             FROM production_progress pp
             INNER JOIN production_routes pr ON pp.route_id = pr.id
             INNER JOIN work_orders wo ON pp.work_order_id = wo.id
             INNER JOIN production_departments pd ON pp.department_id = pd.id
             LEFT JOIN users rb ON pp.received_by_user_id = rb.id
             LEFT JOIN production_departments nd ON pp.designated_next_department_id = nd.id
+            {$dispatchRegisterJoin}
             WHERE pd.slug = :department_slug
               AND wo.status NOT IN ('Completed', 'Cancelled', 'Draft')
         ";
@@ -2020,19 +2338,27 @@ if (!function_exists('work_order_fetch_department_queue')) {
         if ($tab === 'incoming') {
             $query .= " AND pr.route_status = 'Active' AND pp.status = 'Pending'";
         } elseif ($tab === 'active') {
-            if ($workflowMode === 'routing') {
+            if ($workflowMode === 'dispatch') {
+                $query .= " AND pr.route_status = 'Active' AND pp.status IN ('On Hold', 'Returned')";
+            } elseif ($workflowMode === 'routing') {
                 $query .= " AND pr.route_status = 'Active' AND pp.status IN ('In Progress', 'On Hold', 'Returned')";
             } else {
                 $query .= " AND pr.route_status = 'Active' AND pp.status IN ('Received', 'In Progress', 'On Hold', 'Returned')";
             }
         } elseif ($tab === 'ready') {
-            if ($workflowMode === 'routing') {
+            if ($workflowMode === 'dispatch') {
+                $query .= " AND pr.route_status = 'Active' AND pp.status = 'Received'";
+            } elseif ($workflowMode === 'routing') {
                 $query .= " AND pr.route_status = 'Active' AND pp.status = 'Received'";
             } else {
                 $query .= " AND pr.route_status = 'Active' AND pp.status = 'Completed'";
             }
         } else {
-            $query .= " AND (pp.status = 'Dispatched' OR (pr.route_status = 'Completed' AND pp.status IN ('Completed', 'Dispatched')))";
+            if ($workflowMode === 'dispatch') {
+                $query .= " AND (pp.status = 'Dispatched' OR (pr.route_status = 'Completed' AND pp.status IN ('Completed', 'Dispatched')))";
+            } else {
+                $query .= " AND (pp.status = 'Dispatched' OR (pr.route_status = 'Completed' AND pp.status IN ('Completed', 'Dispatched')))";
+            }
         }
 
         $search = trim((string) ($filters['search'] ?? ''));
@@ -2150,9 +2476,13 @@ if (!function_exists('work_order_process_queue_action')) {
         string $holdReason = '',
         array $extra = []
     ): array {
-        $allowedActions = ['receive', 'start', 'hold', 'complete', 'dispatch', 'return'];
+        $allowedActions = ['receive', 'start', 'hold', 'complete', 'dispatch', 'return', 'resume', 'send_back'];
         if (!in_array($action, $allowedActions, true)) {
             throw new RuntimeException('Unsupported queue action.');
+        }
+
+        if ($action === 'send_back') {
+            return work_order_send_back_to_sender($pdo, $progressId, $userId, $remarks);
         }
 
         if ($action === 'dispatch') {
@@ -2186,7 +2516,20 @@ if (!function_exists('work_order_process_queue_action')) {
             'return' => 'Returned',
         ];
 
-        if ($workflowMode === 'routing' && in_array($action, ['start', 'complete'], true)) {
+        if ($workflowMode === 'dispatch') {
+            if (!in_array($action, ['receive', 'hold', 'resume'], true)) {
+                throw new RuntimeException('Dispatch Office jobs are recorded in the Dispatch Register or sent back to the sender.');
+            }
+
+            if ($action === 'resume') {
+                if ((string) ($progress['status'] ?? '') !== 'On Hold') {
+                    throw new RuntimeException('Only jobs on hold can be resumed.');
+                }
+                $newStatus = 'Received';
+            } else {
+                $newStatus = $statusMap[$action];
+            }
+        } elseif ($workflowMode === 'routing' && in_array($action, ['start', 'complete'], true)) {
             if ($action === 'start' && (string) ($progress['status'] ?? '') === 'On Hold') {
                 $newStatus = 'Received';
             } else {
@@ -2239,7 +2582,7 @@ if (!function_exists('work_order_process_queue_action')) {
                 $pdo->prepare("UPDATE production_routes SET route_status = 'Active' WHERE id = ?")->execute([(int) $progress['route_id']]);
             } elseif ($action === 'complete') {
                 $pdo->prepare("UPDATE production_routes SET route_status = 'Active' WHERE id = ?")->execute([(int) $progress['route_id']]);
-            } elseif ($action === 'hold' || $action === 'return') {
+            } elseif ($action === 'hold' || $action === 'return' || $action === 'resume') {
                 $pdo->prepare("UPDATE production_routes SET route_status = 'Active' WHERE id = ?")->execute([(int) $progress['route_id']]);
             }
 
@@ -2273,21 +2616,40 @@ if (!function_exists('work_order_process_queue_action')) {
             if ($action === 'receive' || $action === 'start') {
                 require_once __DIR__ . '/../libs/WorkOrderStatusManager.php';
                 $statusManager = new WorkOrderStatusManager($pdo);
-                $statusManager->changeStatus(
-                    (int) $progress['work_order_id'],
-                    WorkOrderStatusManager::STATUS_IN_PRODUCTION,
-                    $userId,
-                    $action === 'receive' ? 'Job received in department.' : 'Job started.'
-                );
+                if ($workflowMode === 'dispatch' && $action === 'receive') {
+                    $statusManager->changeStatus(
+                        (int) $progress['work_order_id'],
+                        WorkOrderStatusManager::STATUS_AWAITING_DISPATCH,
+                        $userId,
+                        'Job received at Dispatch Office and ready for pickup or delivery.'
+                    );
+                } else {
+                    $statusManager->changeStatus(
+                        (int) $progress['work_order_id'],
+                        WorkOrderStatusManager::STATUS_IN_PRODUCTION,
+                        $userId,
+                        $action === 'receive' ? 'Job received in department.' : 'Job started.'
+                    );
+                }
             }
 
             work_order_recalculate_state($pdo, (int) $progress['work_order_id'], $userId);
             $pdo->commit();
 
+            $redirectTab = '';
+            if ($workflowMode === 'dispatch') {
+                if ($action === 'receive' || $action === 'resume') {
+                    $redirectTab = 'ready';
+                } elseif ($action === 'hold') {
+                    $redirectTab = 'active';
+                }
+            }
+
             return [
                 'work_order_id' => (int) $progress['work_order_id'],
                 'department_slug' => (string) ($progress['department_slug'] ?? ''),
                 'next_department_slug' => '',
+                'redirect_tab' => $redirectTab,
                 'message' => $progress['department_name'] . ' updated to ' . $newStatus . '.',
             ];
         } catch (Throwable $exception) {

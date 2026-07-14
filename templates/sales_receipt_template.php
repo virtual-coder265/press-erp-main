@@ -10,6 +10,7 @@ $payments = is_array($payments ?? null) ? $payments : [];
 
 require_once __DIR__ . '/../includes/settings_helper.php';
 require_once __DIR__ . '/../includes/billing_layout_helper.php';
+require_once __DIR__ . '/../includes/pdf_helper.php';
 
 $settings = function_exists('get_business_pdf_settings') ? get_business_pdf_settings() : [];
 $layout = get_merged_billing_layout('receipt', isset($billing_layout_variant_override) ? $billing_layout_variant_override : null);
@@ -30,22 +31,11 @@ foreach ($defaults as $k => $v) {
     }
 }
 
-$logoPath = '';
+$logoSrc = '';
 if (!empty($settings['business_logo']) && $layout['logo_position'] !== 'hidden') {
-    $candidate = $settings['business_logo'];
-    if (preg_match('#^https?://#i', $candidate)) {
-        $logoPath = $candidate;
-    } else {
-        $relative = ltrim($candidate, '/\\');
-        $resolved = realpath(__DIR__ . '/../' . $relative);
-        if ($resolved && is_file($resolved)) {
-            $logoPath = $resolved;
-        } elseif (!empty($_SERVER['DOCUMENT_ROOT'])) {
-            $resolved = realpath($_SERVER['DOCUMENT_ROOT'] . '/' . $relative);
-            if ($resolved && is_file($resolved)) {
-                $logoPath = $resolved;
-            }
-        }
+    $resolved = resolve_pdf_embed_image_src((string) $settings['business_logo']);
+    if ($resolved !== null) {
+        $logoSrc = $resolved;
     }
 }
 
@@ -64,7 +54,7 @@ $receiptTitle = count($payments) === 1 ? 'PAYMENT RECEIPT' : 'PAYMENT RECEIPT SU
 
 $hdr = (string) ($layout['header_style'] ?? 'band');
 $logoPos = (string) ($layout['logo_position'] ?? 'left');
-$showLogo = $logoPath !== '' && $logoPos !== 'hidden';
+$showLogo = $logoSrc !== '' && $logoPos !== 'hidden';
 
 $sumThisReceipt = 0.0;
 foreach ($payments as $p) {
@@ -112,7 +102,7 @@ foreach ($payments as $p) {
             </td>
             <td style="width:45%;vertical-align:top;text-align:right;">
                 <?php if ($showLogo): ?>
-                    <img src="<?php echo htmlspecialchars($logoPath); ?>" style="max-height:56px;" alt="">
+                    <img src="<?php echo htmlspecialchars($logoSrc); ?>" style="max-height:56px;" alt="">
                     <div style="height:8px;"></div>
                 <?php endif; ?>
                 <strong><?php echo htmlspecialchars($settings['business_name']); ?></strong>
@@ -123,7 +113,7 @@ foreach ($payments as $p) {
         <?php elseif ($logoPos === 'center'): ?>
             <td style="text-align:center;vertical-align:top;">
                 <?php if ($showLogo): ?>
-                    <img src="<?php echo htmlspecialchars($logoPath); ?>" style="max-height:64px;margin-bottom:8px;" alt="">
+                    <img src="<?php echo htmlspecialchars($logoSrc); ?>" style="max-height:64px;margin-bottom:8px;" alt="">
                 <?php endif; ?>
                 <div><strong><?php echo htmlspecialchars($settings['business_name']); ?></strong></div>
                 <div class="doc-title" style="margin-top:12px;"><?php echo htmlspecialchars($receiptTitle); ?></div>
@@ -133,7 +123,7 @@ foreach ($payments as $p) {
             <td style="width:58%;vertical-align:top;">
                 <?php if ($showLogo): ?>
                     <table style="border-collapse:collapse;"><tr>
-                        <td style="padding-right:10px;vertical-align:middle;"><img src="<?php echo htmlspecialchars($logoPath); ?>" style="max-height:52px;" alt=""></td>
+                        <td style="padding-right:10px;vertical-align:middle;"><img src="<?php echo htmlspecialchars($logoSrc); ?>" style="max-height:52px;" alt=""></td>
                         <td style="vertical-align:middle;">
                             <strong style="font-size:14px;"><?php echo htmlspecialchars($settings['business_name']); ?></strong>
                             <?php if (!empty($settings['business_address'])): ?>

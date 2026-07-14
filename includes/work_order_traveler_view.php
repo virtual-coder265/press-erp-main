@@ -52,11 +52,16 @@ $costingTracking = $productionForm['costing_tracking'] ?? [];
         <div class="space-y-3 text-sm">
             <h4 class="font-semibold text-gray-800">Costing &amp; Balance</h4>
             <div class="bg-slate-50 rounded-lg p-4 space-y-2">
+                <?php
+                $travelerTotalCost = (float) ($workOrder['invoice_total'] ?? $workOrder['total_cost_snapshot'] ?? 0);
+                $travelerAmountPaid = (float) ($workOrder['paid_amount'] ?? $workOrder['amount_paid_snapshot'] ?? 0);
+                $travelerBalance = (float) ($workOrder['balance'] ?? $workOrder['balance_snapshot'] ?? 0);
+                ?>
                 <div class="flex justify-between"><span class="text-gray-500">Costed by</span><span class="font-semibold"><?php echo wo_traveler_value($workOrder['costed_by_name'] ?? ''); ?></span></div>
                 <div class="flex justify-between"><span class="text-gray-500">Issued by</span><span class="font-semibold"><?php echo wo_traveler_value($workOrder['issued_by_name'] ?? ''); ?></span></div>
-                <div class="flex justify-between"><span class="text-gray-500">Total cost</span><span class="font-semibold">MK <?php echo number_format((float) ($workOrder['total_cost_snapshot'] ?? $workOrder['invoice_total'] ?? 0), 2); ?></span></div>
-                <div class="flex justify-between"><span class="text-gray-500">Amount paid</span><span class="font-semibold">MK <?php echo number_format((float) ($workOrder['amount_paid_snapshot'] ?? $workOrder['paid_amount'] ?? 0), 2); ?></span></div>
-                <div class="flex justify-between border-t pt-2"><span class="text-gray-500">Balance</span><span class="font-bold">MK <?php echo number_format((float) ($workOrder['balance_snapshot'] ?? $workOrder['balance'] ?? 0), 2); ?></span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Total cost</span><span class="font-semibold">MK <?php echo number_format($travelerTotalCost, 2); ?></span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Amount paid</span><span class="font-semibold">MK <?php echo number_format($travelerAmountPaid, 2); ?></span></div>
+                <div class="flex justify-between border-t pt-2"><span class="text-gray-500">Balance</span><span class="font-bold">MK <?php echo number_format($travelerBalance, 2); ?></span></div>
             </div>
             <?php if (!empty($workOrder['delivery_instructions'])): ?>
                 <div><span class="text-gray-500">Delivery instructions</span><p class="mt-1 whitespace-pre-wrap"><?php echo htmlspecialchars($workOrder['delivery_instructions']); ?></p></div>

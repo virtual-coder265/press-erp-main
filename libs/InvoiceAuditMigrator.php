@@ -8,6 +8,7 @@
  *  - vat_percent                     → invoice now stores the VAT rate it was
  *                                      built with (mirrors what was applied
  *                                      in the source estimation's wizard)
+ *  - delegates money-column widening / capped-total repair to MoneySchemaMigrator
  *
  * Idempotent: each ALTER is gated by an INFORMATION_SCHEMA lookup so it is
  * safe to call on every page load.
@@ -54,6 +55,9 @@ class InvoiceAuditMigrator
                  SET `last_edited_at` = COALESCE(`last_edited_at`, `generated_date`)
                  WHERE `last_edited_at` IS NULL"
             );
+
+            require_once __DIR__ . '/MoneySchemaMigrator.php';
+            MoneySchemaMigrator::ensure($pdo);
         } catch (Throwable $e) {
             error_log('InvoiceAuditMigrator failed: ' . $e->getMessage());
         }

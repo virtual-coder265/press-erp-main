@@ -31,27 +31,17 @@ $settings['signature2_title'] = $settings['signature2_title'] ?? 'Approved By';
 $settings['signature3_title'] = $settings['signature3_title'] ?? 'Date';
 
 require_once __DIR__ . '/../includes/billing_layout_helper.php';
+require_once __DIR__ . '/../includes/pdf_helper.php';
 $layout = get_merged_billing_layout('quote', isset($billing_layout_variant_override) ? $billing_layout_variant_override : null);
 
-$logoPath = '';
+$logoSrc = '';
 if (!empty($settings['business_logo'])) {
-    $candidate = $settings['business_logo'];
-    if (preg_match('#^https?://#i', $candidate)) {
-        $logoPath = $candidate;
-    } else {
-        $relative = ltrim($candidate, '/\\');
-        $resolved = realpath(__DIR__ . '/../' . $relative);
-        if ($resolved && is_file($resolved)) {
-            $logoPath = $resolved;
-        } elseif (!empty($_SERVER['DOCUMENT_ROOT'])) {
-            $resolved = realpath($_SERVER['DOCUMENT_ROOT'] . '/' . $relative);
-            if ($resolved && is_file($resolved)) {
-                $logoPath = $resolved;
-            }
-        }
+    $resolved = resolve_pdf_embed_image_src((string) $settings['business_logo']);
+    if ($resolved !== null) {
+        $logoSrc = $resolved;
     }
 }
-$showLogoBlock = ($layout['logo_position'] !== 'hidden') && ($logoPath !== '');
+$showLogoBlock = ($layout['logo_position'] !== 'hidden') && ($logoSrc !== '');
 $hdrStyle = (string) ($layout['header_style'] ?? 'band');
 if (!in_array($hdrStyle, ['band', 'classic', 'minimal'], true)) {
     $hdrStyle = 'band';
@@ -269,7 +259,7 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
         <tr>
             <td style="text-align:center;vertical-align:top;">
                 <?php if ($showLogoBlock): ?>
-                    <img src="<?php echo htmlspecialchars($logoPath); ?>" alt="" class="logo" style="max-height:70px;">
+                    <img src="<?php echo htmlspecialchars($logoSrc); ?>" alt="" class="logo" style="max-height:70px;">
                     <div style="height:8px;"></div>
                 <?php endif; ?>
                 <div class="document-title" style="font-size:<?php echo $hdrStyle === 'minimal' ? '18px' : '22px'; ?>;"><?php echo htmlspecialchars($settings['business_name']); ?></div>
@@ -296,7 +286,7 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
             </td>
             <td style="width:52%;vertical-align:top;text-align:right;">
                 <?php if ($showLogoBlock): ?>
-                    <img src="<?php echo htmlspecialchars($logoPath); ?>" alt="" class="logo" style="margin-left:auto;display:block;">
+                    <img src="<?php echo htmlspecialchars($logoSrc); ?>" alt="" class="logo" style="margin-left:auto;display:block;">
                 <?php endif; ?>
                 <div class="document-title" style="font-size:18px;margin-top:6px;"><?php echo htmlspecialchars($settings['business_name']); ?></div>
                 <div style="margin-top:8px;font-size:10px;color:#555;text-align:right;"><?php echo nl2br(htmlspecialchars($settings['business_address'])); ?></div>
@@ -308,7 +298,7 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
         <tr>
             <td style="width:55%;vertical-align:top;text-align:left;">
                 <?php if ($showLogoBlock): ?>
-                    <img src="<?php echo htmlspecialchars($logoPath); ?>" alt="" class="logo">
+                    <img src="<?php echo htmlspecialchars($logoSrc); ?>" alt="" class="logo">
                 <?php else: ?>
                     <div class="document-title" style="font-size:18px;"><?php echo htmlspecialchars($settings['business_name']); ?></div>
                 <?php endif; ?>

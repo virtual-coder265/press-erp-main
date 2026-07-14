@@ -40,17 +40,28 @@ if ($id > 0) {
 include '../../includes/header.php';
 ?>
 
+<?php if ($workOrder): ?>
+    <div class="mb-2">
+        <a href="view?id=<?php echo (int) $workOrder['id']; ?>" class="wo-page-back">
+            <i data-lucide="arrow-left" class="h-4 w-4" aria-hidden="true"></i>
+            Back to work order
+        </a>
+    </div>
+<?php endif; ?>
+
 <div class="list-toolbar mb-6">
     <div class="min-w-0">
         <h1 class="text-3xl font-bold text-gray-800 break-words"><?php echo $workOrder ? htmlspecialchars($workOrder['work_order_number'] . ' Timeline') : 'Production Timeline'; ?></h1>
         <p class="text-sm text-gray-500 mt-1">Audit trail of every work-order handoff and production movement.</p>
     </div>
+    <?php if (!$workOrder): ?>
     <div class="list-toolbar-actions">
-        <a href="<?php echo $workOrder ? 'view?id=' . (int) $workOrder['id'] : 'list'; ?>" class="list-action-btn bg-indigo-600 text-white">
-            <i data-lucide="arrow-left" class="sm:mr-1 inline-block h-5 w-5" aria-hidden="true"></i>
-            <span class="hidden sm:inline"><?php echo $workOrder ? 'Back to Work Order' : 'Work Orders'; ?></span>
+        <a href="list" class="list-action-btn bg-indigo-600 text-white">
+            <i data-lucide="clipboard-list" class="sm:mr-1 inline-block h-5 w-5" aria-hidden="true"></i>
+            <span class="hidden sm:inline">Work orders</span>
         </a>
     </div>
+    <?php endif; ?>
 </div>
 
 <div class="bg-white shadow rounded-xl p-6">

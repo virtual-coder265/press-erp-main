@@ -18,7 +18,8 @@ $departmentFilter = trim((string) ($_GET['department'] ?? ''));
 $priorityFilter = trim((string) ($_GET['priority'] ?? ''));
 
 $query = "
-    SELECT wo.*, i.invoice_number, i.balance, e.estimation_number, pd.name AS current_department_name
+    SELECT wo.*, i.invoice_number, i.balance, e.estimation_number,
+           pd.name AS current_department_name, pd.slug AS current_department_slug
     FROM work_orders wo
     INNER JOIN invoices i ON wo.invoice_id = i.id
     LEFT JOIN estimations e ON wo.estimation_id = e.id
@@ -70,10 +71,16 @@ include '../../includes/header.php';
         <p class="text-sm text-gray-500 mt-1">Track jobs from costing through origination, production sections, and dispatch.</p>
     </div>
     <div class="list-toolbar-actions">
-        <a href="dashboard" class="list-action-btn bg-indigo-600 text-white">
+        <a href="dashboard" class="list-action-btn bg-slate-700 text-white">
             <i data-lucide="layout-dashboard" class="sm:mr-1 inline-block h-5 w-5" aria-hidden="true"></i>
             <span class="hidden sm:inline">Dashboard</span>
         </a>
+        <?php if (hasPermission('manage_production_queues') || hasPermission('manage_work_orders')): ?>
+            <a href="workspace" class="list-action-btn bg-emerald-600 text-white">
+                <i data-lucide="layout-grid" class="sm:mr-1 inline-block h-5 w-5" aria-hidden="true"></i>
+                <span class="hidden sm:inline">Workspace</span>
+            </a>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -124,7 +131,7 @@ include '../../includes/header.php';
     </form>
 </div>
 
-<div class="bg-white shadow rounded-lg overflow-hidden">
+<div class="list-view-shell">
     <div class="hidden md:block overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
@@ -136,14 +143,21 @@ include '../../includes/header.php';
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
                     <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Due Date</th>
-                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Action</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
                 <?php foreach ($workOrders as $wo): ?>
+                    <?php
+                    $deptSlug = (string) ($wo['current_department_slug'] ?? '');
+                    $canQueue = $deptSlug !== '' && (hasPermission('manage_production_queues') || hasPermission('manage_work_orders'));
+                    $canSendOrigination = hasPermission('manage_work_orders') && work_order_can_send_to_origination($wo);
+                    ?>
                     <tr class="hover:bg-gray-50">
                         <td class="px-6 py-4">
-                            <div class="font-semibold text-gray-900"><?php echo htmlspecialchars($wo['work_order_number']); ?></div>
+                            <a href="view?id=<?php echo (int) $wo['id']; ?>" class="font-semibold text-indigo-600 hover:underline">
+                                <?php echo htmlspecialchars($wo['work_order_number']); ?>
+                            </a>
                             <div class="text-xs text-gray-500"><?php echo htmlspecialchars(date('M j, Y', strtotime($wo['created_at']))); ?></div>
                         </td>
                         <td class="px-6 py-4 text-sm text-gray-800"><?php echo htmlspecialchars($wo['customer_name'] ?: '—'); ?></td>
@@ -151,7 +165,15 @@ include '../../includes/header.php';
                             <div>Invoice: <?php echo htmlspecialchars($wo['invoice_number']); ?></div>
                             <div>Estimation: <?php echo htmlspecialchars($wo['estimation_number'] ?: '—'); ?></div>
                         </td>
-                        <td class="px-6 py-4 text-sm text-gray-700"><?php echo htmlspecialchars($wo['current_department_name'] ?: ($wo['status'] === 'Draft' ? 'Costing (awaiting send)' : 'Not routed yet')); ?></td>
+                        <td class="px-6 py-4 text-sm text-gray-700">
+                            <?php if ($canQueue): ?>
+                                <a href="workspace?department=<?php echo urlencode($deptSlug); ?>" class="text-indigo-600 hover:underline">
+                                    <?php echo htmlspecialchars($wo['current_department_name']); ?>
+                                </a>
+                            <?php else: ?>
+                                <?php echo htmlspecialchars($wo['current_department_name'] ?: ($wo['status'] === 'Draft' ? 'Costing (awaiting send)' : 'Not routed yet')); ?>
+                            <?php endif; ?>
+                        </td>
                         <td class="px-6 py-4">
                             <span class="px-2 py-1 inline-flex text-xs rounded-full font-semibold <?php echo work_order_status_badge_class((string) $wo['status']); ?>">
                                 <?php echo htmlspecialchars($wo['status']); ?>
@@ -159,14 +181,23 @@ include '../../includes/header.php';
                         </td>
                         <td class="px-6 py-4 text-sm text-gray-700"><?php echo htmlspecialchars($wo['priority']); ?></td>
                         <td class="px-6 py-4 text-right text-sm text-gray-700"><?php echo htmlspecialchars($wo['due_date'] ?: '—'); ?></td>
-                        <td class="px-6 py-4 text-right text-sm">
-                            <div class="flex flex-col items-end gap-2">
-                                <a href="view?id=<?php echo (int) $wo['id']; ?>" class="text-indigo-600 hover:text-indigo-800 font-medium">Open</a>
-                                <?php if (hasPermission('manage_work_orders') && work_order_can_send_to_origination($wo)): ?>
+                        <td class="px-6 py-4">
+                            <div class="flex justify-end gap-2">
+                                <a href="view?id=<?php echo (int) $wo['id']; ?>" class="list-icon-action bg-indigo-600 text-white" title="Open work order" aria-label="Open work order">
+                                    <i data-lucide="eye" class="h-4 w-4" aria-hidden="true"></i>
+                                </a>
+                                <?php if ($canQueue): ?>
+                                    <a href="workspace?department=<?php echo urlencode($deptSlug); ?>" class="list-icon-action bg-emerald-600 text-white" title="Open department queue" aria-label="Open department queue">
+                                        <i data-lucide="layout-grid" class="h-4 w-4" aria-hidden="true"></i>
+                                    </a>
+                                <?php endif; ?>
+                                <?php if ($canSendOrigination): ?>
                                     <form method="POST" action="send_to_origination" class="inline">
                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token('work_order_send_origination')); ?>">
                                         <input type="hidden" name="work_order_id" value="<?php echo (int) $wo['id']; ?>">
-                                        <button type="submit" class="text-emerald-700 hover:text-emerald-900 font-medium text-xs">Send to Origination</button>
+                                        <button type="submit" class="list-icon-action bg-amber-500 text-white" title="Send to Origination" aria-label="Send to Origination">
+                                            <i data-lucide="send" class="h-4 w-4" aria-hidden="true"></i>
+                                        </button>
                                     </form>
                                 <?php endif; ?>
                             </div>
@@ -182,26 +213,72 @@ include '../../includes/header.php';
         </table>
     </div>
 
-    <div class="md:hidden divide-y divide-gray-100">
+    <div class="list-mobile-stack md:hidden">
         <?php foreach ($workOrders as $wo): ?>
-            <div class="p-4 space-y-3">
+            <?php
+            $deptSlug = (string) ($wo['current_department_slug'] ?? '');
+            $canQueue = $deptSlug !== '' && (hasPermission('manage_production_queues') || hasPermission('manage_work_orders'));
+            $canSendOrigination = hasPermission('manage_work_orders') && work_order_can_send_to_origination($wo);
+            ?>
+            <div class="list-mobile-card">
                 <div class="flex items-start justify-between gap-3">
                     <div>
-                        <p class="font-semibold text-gray-900"><?php echo htmlspecialchars($wo['work_order_number']); ?></p>
-                        <p class="text-sm text-gray-500"><?php echo htmlspecialchars($wo['customer_name'] ?: '—'); ?></p>
+                        <p class="list-card-title">
+                            <a href="view?id=<?php echo (int) $wo['id']; ?>" class="text-indigo-600 hover:underline">
+                                <?php echo htmlspecialchars($wo['work_order_number']); ?>
+                            </a>
+                        </p>
+                        <p class="text-sm text-gray-500 mt-1"><?php echo htmlspecialchars($wo['customer_name'] ?: '—'); ?></p>
                     </div>
-                    <span class="px-2 py-1 inline-flex text-xs rounded-full font-semibold <?php echo work_order_status_badge_class((string) $wo['status']); ?>">
+                    <span class="px-2 py-1 inline-flex text-xs rounded-full font-semibold shrink-0 <?php echo work_order_status_badge_class((string) $wo['status']); ?>">
                         <?php echo htmlspecialchars($wo['status']); ?>
                     </span>
                 </div>
-                <div class="text-sm text-gray-600">
-                    <div>Invoice: <?php echo htmlspecialchars($wo['invoice_number']); ?></div>
-                    <div>Current department: <?php echo htmlspecialchars($wo['current_department_name'] ?: ($wo['status'] === 'Draft' ? 'Costing (awaiting send)' : 'Not routed yet')); ?></div>
-                    <div>Priority: <?php echo htmlspecialchars($wo['priority']); ?></div>
+                <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
+                    <div>
+                        <p class="list-card-meta">Department</p>
+                        <p class="list-card-value"><?php echo htmlspecialchars($wo['current_department_name'] ?: ($wo['status'] === 'Draft' ? 'Costing' : 'Not routed')); ?></p>
+                    </div>
+                    <div>
+                        <p class="list-card-meta">Due</p>
+                        <p class="list-card-value"><?php echo htmlspecialchars($wo['due_date'] ?: '—'); ?></p>
+                    </div>
+                    <div>
+                        <p class="list-card-meta">Invoice</p>
+                        <p class="list-card-value"><?php echo htmlspecialchars($wo['invoice_number']); ?></p>
+                    </div>
+                    <div>
+                        <p class="list-card-meta">Priority</p>
+                        <p class="list-card-value"><?php echo htmlspecialchars($wo['priority']); ?></p>
+                    </div>
                 </div>
-                <a href="view?id=<?php echo (int) $wo['id']; ?>" class="inline-flex items-center text-indigo-600 hover:text-indigo-800 font-medium">Open work order</a>
+                <div class="list-row-actions <?php echo $canSendOrigination ? '' : 'two-up'; ?> mt-4">
+                    <a href="view?id=<?php echo (int) $wo['id']; ?>" class="list-icon-action bg-indigo-600 text-white" aria-label="Open work order">
+                        <i data-lucide="eye" class="h-4 w-4" aria-hidden="true"></i>
+                    </a>
+                    <?php if ($canQueue): ?>
+                        <a href="workspace?department=<?php echo urlencode($deptSlug); ?>" class="list-icon-action bg-emerald-600 text-white" aria-label="Open department queue">
+                            <i data-lucide="layout-grid" class="h-4 w-4" aria-hidden="true"></i>
+                        </a>
+                    <?php endif; ?>
+                    <?php if ($canSendOrigination): ?>
+                        <form method="POST" action="send_to_origination">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token('work_order_send_origination')); ?>">
+                            <input type="hidden" name="work_order_id" value="<?php echo (int) $wo['id']; ?>">
+                            <button type="submit" class="list-icon-action bg-amber-500 text-white w-full" aria-label="Send to Origination">
+                                <i data-lucide="send" class="h-4 w-4" aria-hidden="true"></i>
+                            </button>
+                        </form>
+                    <?php endif; ?>
+                </div>
             </div>
         <?php endforeach; ?>
+        <?php if (empty($workOrders)): ?>
+            <div class="list-mobile-card text-center text-gray-500 py-12">
+                <i data-lucide="clipboard-list" class="mx-auto mb-2 block h-12 w-12 text-gray-400" aria-hidden="true"></i>
+                No work orders found.
+            </div>
+        <?php endif; ?>
     </div>
 </div>
 

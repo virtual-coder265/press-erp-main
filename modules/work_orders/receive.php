@@ -71,7 +71,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $_SESSION['success'] = 'Work order ' . $context['work_order_number'] . ' received in ' . $context['department_name'] . '.';
         $workflowMode = (string) ($context['workflow_mode'] ?? 'production');
-        $tab = $workflowMode === 'routing' ? 'ready' : 'active';
+        $tab = match ($workflowMode) {
+            'routing' => 'ready',
+            'dispatch' => 'ready',
+            default => 'active',
+        };
         redirect('modules/work_orders/workspace?department=' . urlencode($departmentSlug) . '&tab=' . $tab);
     } catch (Throwable $exception) {
         $_SESSION['error'] = $exception->getMessage();
@@ -84,8 +88,8 @@ include '../../includes/header.php';
 
 <div class="mb-6">
     <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>&tab=incoming"
-        class="text-indigo-600 hover:underline inline-flex items-center text-sm">
-        <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
+        class="wo-page-back">
+        <i data-lucide="arrow-left" class="h-4 w-4" aria-hidden="true"></i>
         Back to <?php echo htmlspecialchars($context['department_name']); ?> workspace
     </a>
 </div>
@@ -95,7 +99,8 @@ include '../../includes/header.php';
         <h1 class="text-2xl font-bold text-gray-800 mb-2">Already received</h1>
         <p class="text-gray-600 mb-6">This work order is already marked as <?php echo htmlspecialchars($context['status']); ?>.</p>
         <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>&tab=active"
-            class="inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-3 rounded-lg hover:bg-indigo-700 transition">
+            class="wo-action-btn bg-indigo-600 text-white hover:bg-indigo-700">
+            <i data-lucide="layout-grid" class="h-4 w-4" aria-hidden="true"></i>
             Return to workspace
         </a>
     </div>
@@ -144,7 +149,8 @@ include '../../includes/header.php';
             </div>
 
             <button type="submit"
-                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition">
+                class="wo-primary-btn bg-blue-600 hover:bg-blue-700 w-full">
+                <i data-lucide="inbox" class="h-5 w-5" aria-hidden="true"></i>
                 Confirm receipt
             </button>
         </form>

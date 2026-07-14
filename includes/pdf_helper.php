@@ -11,6 +11,79 @@ use Dompdf\Dompdf;
 use Dompdf\Options;
 
 /**
+ * Resolve an image path or URL to a src Dompdf can embed reliably.
+ * Local files are returned as base64 data URIs.
+ *
+ * @param string $path Web-relative path, filesystem path, or http(s) URL
+ * @return string|null Embeddable src, or null when the image cannot be resolved
+ */
+function resolve_pdf_embed_image_src(string $path): ?string
+{
+    $path = trim($path);
+    if ($path === '') {
+        return null;
+    }
+
+    if (preg_match('#^https?://#i', $path)) {
+        return $path;
+    }
+
+    $relative = ltrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path), DIRECTORY_SEPARATOR);
+    $candidates = [];
+
+    if (defined('ROOT_PATH')) {
+        $candidates[] = ROOT_PATH . $relative;
+    }
+    $candidates[] = dirname(__DIR__) . DIRECTORY_SEPARATOR . $relative;
+    if (!empty($_SERVER['DOCUMENT_ROOT'])) {
+        $candidates[] = rtrim((string) $_SERVER['DOCUMENT_ROOT'], '/\\') . DIRECTORY_SEPARATOR . $relative;
+    }
+
+    foreach ($candidates as $candidate) {
+        $resolved = realpath($candidate);
+        if (!$resolved || !is_file($resolved)) {
+            continue;
+        }
+
+        $mime = 'application/octet-stream';
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            if ($finfo !== false) {
+                $detected = finfo_file($finfo, $resolved);
+                finfo_close($finfo);
+                if (is_string($detected) && $detected !== '') {
+                    $mime = $detected;
+                }
+            }
+        } elseif (function_exists('mime_content_type')) {
+            $detected = @mime_content_type($resolved);
+            if (is_string($detected) && $detected !== '') {
+                $mime = $detected;
+            }
+        } else {
+            $ext = strtolower(pathinfo($resolved, PATHINFO_EXTENSION));
+            $mimeMap = [
+                'jpg' => 'image/jpeg',
+                'jpeg' => 'image/jpeg',
+                'png' => 'image/png',
+                'gif' => 'image/gif',
+                'webp' => 'image/webp',
+            ];
+            $mime = $mimeMap[$ext] ?? $mime;
+        }
+
+        $data = base64_encode((string) file_get_contents($resolved));
+        if ($data === '') {
+            continue;
+        }
+
+        return 'data:' . $mime . ';base64,' . $data;
+    }
+
+    return null;
+}
+
+/**
  * Generate a PDF from HTML content
  * 
  * @param string $html The HTML content to convert to PDF

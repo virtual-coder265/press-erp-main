@@ -52,6 +52,7 @@ $tabCounts = [
 $secondaryActionLabels = [
     'hold' => 'Put on hold',
     'return' => 'Return job',
+    'send_back' => 'Send back to sender',
 ];
 
 $filterQuery = http_build_query(array_filter([
@@ -65,41 +66,23 @@ $filterQuery = http_build_query(array_filter([
     'direction' => $filters['direction'] !== 'ASC' ? $filters['direction'] : null,
 ]));
 
+$primaryActionIcons = [
+    'handoff' => 'send',
+    'dispatch_record' => 'truck',
+    'receive_page' => 'inbox',
+    'queue' => 'circle-play',
+];
+
 include '../../includes/header.php';
 ?>
-
-<style>
-    .wo-step-track { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
-    .wo-step-dot {
-        width: 0.55rem; height: 0.55rem; border-radius: 9999px; background: #d1d5db; flex-shrink: 0;
-    }
-    .wo-step-dot.is-done { background: #16a34a; }
-    .wo-step-dot.is-current { background: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); }
-    .wo-step-label { font-size: 0.7rem; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
-    .wo-step-label.is-current { color: #4338ca; }
-    .wo-step-label.is-done { color: #15803d; }
-    .wo-primary-btn {
-        display: flex; align-items: center; justify-content: center; gap: 0.5rem;
-        width: 100%; min-height: 3rem; padding: 0.75rem 1rem;
-        border-radius: 0.75rem; color: #fff; font-size: 0.95rem; font-weight: 700;
-        transition: background-color 0.15s ease, transform 0.15s ease;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-    }
-    .wo-primary-btn:hover { transform: translateY(-1px); }
-    .wo-job-card { border: 1px solid #e5e7eb; border-radius: 1rem; padding: 1.25rem; background: #fff; }
-    .wo-job-card.is-ready { border-color: #86efac; background: linear-gradient(180deg, #f0fdf4 0%, #fff 4rem); }
-    .wo-receive-chip {
-        display: inline-flex; align-items: center; gap: 0.35rem;
-        font-size: 0.75rem; color: #374151; background: #f3f4f6;
-        border-radius: 9999px; padding: 0.25rem 0.65rem;
-    }
-</style>
 
 <div class="list-toolbar mb-6">
     <div class="min-w-0">
         <h1 class="text-3xl font-bold text-gray-800 break-words"><?php echo htmlspecialchars($currentDepartment['name'] ?? 'Department'); ?> Workspace</h1>
         <p class="text-sm text-gray-500 mt-1">
-            <?php if ($workflowMode === 'routing'): ?>
+            <?php if ($workflowMode === 'dispatch'): ?>
+                Receive completed jobs, record dispatch send-off entries, or send work back to the sender when issues are found.
+            <?php elseif ($workflowMode === 'routing'): ?>
                 Record incoming jobs and designate where each work order should go next.
             <?php else: ?>
                 Receive jobs, track production progress, and designate the next section when work is complete.
@@ -107,6 +90,10 @@ include '../../includes/header.php';
         </p>
     </div>
     <div class="list-toolbar-actions">
+        <a href="dashboard" class="list-action-btn bg-slate-700 text-white">
+            <i data-lucide="layout-dashboard" class="sm:mr-1 inline-block h-5 w-5" aria-hidden="true"></i>
+            <span class="hidden sm:inline">Dashboard</span>
+        </a>
         <a href="list" class="list-action-btn bg-indigo-600 text-white">
             <i data-lucide="clipboard-list" class="sm:mr-1 inline-block h-5 w-5" aria-hidden="true"></i>
             <span class="hidden sm:inline">All work orders</span>
@@ -184,16 +171,17 @@ include '../../includes/header.php';
     </form>
 </div>
 
-<div class="flex flex-wrap gap-2 mb-6">
+<div class="wo-tab-bar">
     <?php
     $tabs = [
         'incoming' => 'Incoming',
-        'active' => 'In progress',
-        'ready' => $workflowMode === 'routing' ? 'Ready to designate' : 'Ready to send',
-        'sent' => 'Sent out',
+        'active' => $workflowMode === 'dispatch' ? 'On hold' : 'In progress',
+        'ready' => $workflowMode === 'dispatch' ? 'Ready for dispatch' : ($workflowMode === 'routing' ? 'Ready to designate' : 'Ready to send'),
+        'sent' => $workflowMode === 'dispatch' ? 'Sent back' : 'Sent out',
     ];
     foreach ($tabs as $tabKey => $tabLabel):
         $isReadyTab = $tabKey === 'ready';
+        $isActive = $tab === $tabKey;
         $tabHref = 'workspace?' . http_build_query(array_merge(
             array_filter([
                 'department' => $departmentSlug,
@@ -206,12 +194,17 @@ include '../../includes/header.php';
             ]),
             ['tab' => $tabKey]
         ));
+        $tabClass = 'wo-tab';
+        if ($isReadyTab) {
+            $tabClass .= ' is-ready';
+        }
+        if ($isActive) {
+            $tabClass .= ' is-active';
+        }
     ?>
-        <a href="<?php echo htmlspecialchars($tabHref); ?>"
-            class="px-4 py-2 rounded-lg text-sm font-semibold transition <?php echo $tab === $tabKey
-                ? ($isReadyTab ? 'bg-emerald-600 text-white' : 'bg-indigo-600 text-white')
-                : ($isReadyTab && $tabCounts['ready'] > 0 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'); ?>">
-            <?php echo htmlspecialchars($tabLabel); ?> (<?php echo (int) $tabCounts[$tabKey]; ?>)
+        <a href="<?php echo htmlspecialchars($tabHref); ?>" class="<?php echo $tabClass; ?>">
+            <?php echo htmlspecialchars($tabLabel); ?>
+            <span class="wo-tab-count"><?php echo (int) $tabCounts[$tabKey]; ?></span>
         </a>
     <?php endforeach; ?>
 </div>
@@ -224,8 +217,13 @@ include '../../includes/header.php';
 
 <?php if ($tab === 'ready' && $tabCounts['ready'] > 0): ?>
     <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-6 text-sm text-emerald-900">
-        <strong><?php echo $workflowMode === 'routing' ? 'Ready to designate' : 'Ready to send'; ?></strong>
-        — choose the next section and confirm the handoff.
+        <?php if ($workflowMode === 'dispatch'): ?>
+            <strong>Ready for pickup or delivery</strong>
+            — record the dispatch send-off in the Dispatch Register, or send the job back to the sender if there are issues.
+        <?php else: ?>
+            <strong><?php echo $workflowMode === 'routing' ? 'Ready to designate' : 'Ready to send'; ?></strong>
+            — choose the next section and confirm the handoff.
+        <?php endif; ?>
     </div>
 <?php endif; ?>
 
@@ -233,6 +231,14 @@ include '../../includes/header.php';
     <?php foreach ($queueItems as $item): ?>
         <?php
         $progressStatus = (string) $item['progress_status'];
+        $dispatchRegister = null;
+        if ($workflowMode === 'dispatch') {
+            $dispatchRegister = [
+                'id' => !empty($item['dispatch_register_id']) ? (int) $item['dispatch_register_id'] : null,
+                'date_out' => $item['dispatch_date_out'] ?? null,
+                'delivery_note_number' => $item['dispatch_delivery_note_number'] ?? null,
+            ];
+        }
         $primary = work_order_primary_workspace_action(
             $progressStatus,
             false,
@@ -240,11 +246,12 @@ include '../../includes/header.php';
             $workflowMode,
             (int) $item['progress_id'],
             (int) $item['work_order_id'],
-            $departmentSlug
+            $departmentSlug,
+            $dispatchRegister
         );
         $secondary = array_diff(work_order_allowed_queue_actions($progressStatus, false, $workflowMode), [$primary['action'] ?? '']);
         $steps = work_order_workspace_steps($progressStatus, $workflowMode);
-        $isReady = ($primary['type'] ?? '') === 'handoff';
+        $isReady = ($primary['type'] ?? '') === 'handoff' || ($workflowMode === 'dispatch' && ($primary['type'] ?? '') === 'dispatch_record');
         ?>
         <article class="wo-job-card shadow-sm <?php echo $isReady ? 'is-ready' : ''; ?>">
             <div class="flex flex-col lg:flex-row lg:items-start gap-5">
@@ -295,31 +302,58 @@ include '../../includes/header.php';
                         <?php endforeach; ?>
                     </div>
 
-                    <div class="flex flex-wrap gap-3 mt-4 text-sm">
-                        <a href="department_edit?department=<?php echo urlencode($departmentSlug); ?>&id=<?php echo (int) $item['work_order_id']; ?>" class="text-indigo-600 hover:underline">
+                    <div class="wo-card-links">
+                        <a href="department_edit?department=<?php echo urlencode($departmentSlug); ?>&id=<?php echo (int) $item['work_order_id']; ?>" class="wo-card-link">
+                            <i data-lucide="pencil-line" class="h-4 w-4" aria-hidden="true"></i>
                             <?php echo $workflowMode === 'routing' ? 'Edit origination record' : 'Edit section fields'; ?>
                         </a>
-                        <a href="view?id=<?php echo (int) $item['work_order_id']; ?>" class="text-indigo-600 hover:underline">View full work order</a>
+                        <a href="view?id=<?php echo (int) $item['work_order_id']; ?>" class="wo-card-link">
+                            <i data-lucide="file-text" class="h-4 w-4" aria-hidden="true"></i>
+                            View full work order
+                        </a>
                     </div>
-
-                    <?php if ($primary && ($primary['type'] ?? '') === 'handoff'): ?>
-                        <div class="mt-5 pt-4 border-t border-emerald-100">
-                            <a href="handoff?progress_id=<?php echo (int) ($primary['progress_id'] ?? $item['progress_id']); ?>"
-                                class="wo-primary-btn <?php echo htmlspecialchars($primary['button_class']); ?>">
-                                <i data-lucide="send" class="h-5 w-5" aria-hidden="true"></i>
-                                <?php echo htmlspecialchars($primary['label']); ?>
-                            </a>
-                            <p class="text-xs text-gray-500 mt-2"><?php echo htmlspecialchars($primary['description']); ?></p>
-                        </div>
-                    <?php endif; ?>
                 </div>
 
-                <div class="w-full lg:w-72 flex-shrink-0">
-                    <?php if ($primary && ($primary['type'] ?? '') !== 'handoff'): ?>
-                        <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Do this now</p>
-                        <?php if ($primary['type'] === 'receive_page'): ?>
+                <div class="wo-card-actions">
+                    <?php if ($primary): ?>
+                        <?php
+                        $primaryType = (string) ($primary['type'] ?? '');
+                        $primaryIcon = $primaryActionIcons[$primaryType] ?? 'circle-play';
+                        if ($primaryType === 'queue') {
+                            $queueIconMap = [
+                                'start' => 'play',
+                                'complete' => 'check-circle',
+                                'resume' => 'play-circle',
+                            ];
+                            $primaryIcon = $queueIconMap[(string) ($primary['action'] ?? '')] ?? 'circle-play';
+                        }
+                        ?>
+                        <p class="wo-card-actions-label"><?php echo $primaryType === 'dispatch_record' ? 'Dispatch actions' : 'Do this now'; ?></p>
+
+                        <?php if ($primaryType === 'handoff'): ?>
+                            <a href="handoff?progress_id=<?php echo (int) ($primary['progress_id'] ?? $item['progress_id']); ?>"
+                                class="wo-primary-btn <?php echo htmlspecialchars($primary['button_class']); ?>">
+                                <i data-lucide="<?php echo htmlspecialchars($primaryIcon); ?>" class="h-5 w-5" aria-hidden="true"></i>
+                                <?php echo htmlspecialchars($primary['label']); ?>
+                            </a>
+                        <?php elseif ($primaryType === 'dispatch_record'): ?>
+                            <?php if (!empty($primary['dispatch_id'])): ?>
+                                <a href="<?php echo BASE_URL; ?>modules/dispatch/view?id=<?php echo (int) $primary['dispatch_id']; ?>"
+                                    class="wo-primary-btn <?php echo htmlspecialchars($primary['button_class']); ?>">
+                                    <i data-lucide="<?php echo htmlspecialchars($primaryIcon); ?>" class="h-5 w-5" aria-hidden="true"></i>
+                                    <?php echo htmlspecialchars($primary['label']); ?>
+                                </a>
+                            <?php else: ?>
+                                <a href="<?php echo BASE_URL; ?>modules/dispatch/create?work_order_id=<?php echo (int) ($primary['work_order_id'] ?? $item['work_order_id']); ?>"
+                                    class="wo-primary-btn <?php echo htmlspecialchars($primary['button_class']); ?>">
+                                    <i data-lucide="<?php echo htmlspecialchars($primaryIcon); ?>" class="h-5 w-5" aria-hidden="true"></i>
+                                    <?php echo htmlspecialchars($primary['label']); ?>
+                                </a>
+                            <?php endif; ?>
+                        <?php elseif ($primaryType === 'receive_page'): ?>
                             <a href="receive?progress_id=<?php echo (int) ($primary['progress_id'] ?? $item['progress_id']); ?>"
                                 class="wo-primary-btn <?php echo htmlspecialchars($primary['button_class']); ?>">
+                                <i data-lucide="<?php echo htmlspecialchars($primaryIcon); ?>" class="h-5 w-5" aria-hidden="true"></i>
                                 <?php echo htmlspecialchars($primary['label']); ?>
                             </a>
                         <?php else: ?>
@@ -330,58 +364,77 @@ include '../../includes/header.php';
                                 <input type="hidden" name="redirect_tab" value="<?php echo htmlspecialchars($tab); ?>">
                                 <button type="submit" name="action" value="<?php echo htmlspecialchars($primary['action']); ?>"
                                     class="wo-primary-btn <?php echo htmlspecialchars($primary['button_class']); ?>">
+                                    <i data-lucide="<?php echo htmlspecialchars($primaryIcon); ?>" class="h-5 w-5" aria-hidden="true"></i>
                                     <?php echo htmlspecialchars($primary['label']); ?>
                                 </button>
                             </form>
                         <?php endif; ?>
-                        <p class="text-xs text-gray-500 mt-2"><?php echo htmlspecialchars($primary['description']); ?></p>
+
+                        <?php if (!empty($primary['description'])): ?>
+                            <p class="wo-primary-desc"><?php echo htmlspecialchars($primary['description']); ?></p>
+                        <?php endif; ?>
 
                         <?php if (!empty($secondary)): ?>
-                            <form method="POST" action="queue_action" class="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                            <form method="POST" action="queue_action" class="wo-secondary-actions">
                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token('work_order_queue_action')); ?>">
                                 <input type="hidden" name="progress_id" value="<?php echo (int) $item['progress_id']; ?>">
                                 <input type="hidden" name="redirect_department" value="<?php echo htmlspecialchars($departmentSlug); ?>">
                                 <input type="hidden" name="redirect_tab" value="<?php echo htmlspecialchars($tab); ?>">
-                                <div class="flex flex-wrap gap-2">
-                                    <?php foreach ($secondary as $actionKey): ?>
+                                <?php foreach ($secondary as $actionKey): ?>
+                                    <?php if ($actionKey === 'send_back'): ?>
+                                        <a href="send_back?progress_id=<?php echo (int) $item['progress_id']; ?>"
+                                            class="wo-secondary-btn is-danger">
+                                            <i data-lucide="undo-2" class="h-3.5 w-3.5" aria-hidden="true"></i>
+                                            <?php echo htmlspecialchars($secondaryActionLabels[$actionKey] ?? ucfirst($actionKey)); ?>
+                                        </a>
+                                    <?php else: ?>
                                         <button type="submit" name="action" value="<?php echo htmlspecialchars($actionKey); ?>"
-                                            class="text-xs px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-50">
+                                            class="wo-secondary-btn">
                                             <?php echo htmlspecialchars($secondaryActionLabels[$actionKey] ?? ucfirst($actionKey)); ?>
                                         </button>
-                                    <?php endforeach; ?>
-                                </div>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
                                 <?php if (in_array('hold', $secondary, true)): ?>
-                                    <input type="text" name="hold_reason" placeholder="Hold reason (required for hold)" class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg">
+                                    <input type="text" name="hold_reason" placeholder="Hold reason (required)" class="wo-hold-field">
                                 <?php endif; ?>
                             </form>
                         <?php endif; ?>
-                    <?php elseif ($primary && ($primary['type'] ?? '') === 'handoff' && !empty($secondary)): ?>
-                        <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Other actions</p>
-                        <form method="POST" action="queue_action" class="space-y-2">
-                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token('work_order_queue_action')); ?>">
-                            <input type="hidden" name="progress_id" value="<?php echo (int) $item['progress_id']; ?>">
-                            <input type="hidden" name="redirect_department" value="<?php echo htmlspecialchars($departmentSlug); ?>">
-                            <input type="hidden" name="redirect_tab" value="<?php echo htmlspecialchars($tab); ?>">
-                            <div class="flex flex-wrap gap-2">
-                                <?php foreach ($secondary as $actionKey): ?>
-                                    <button type="submit" name="action" value="<?php echo htmlspecialchars($actionKey); ?>"
-                                        class="text-xs px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-50">
-                                        <?php echo htmlspecialchars($secondaryActionLabels[$actionKey] ?? ucfirst($actionKey)); ?>
-                                    </button>
-                                <?php endforeach; ?>
-                            </div>
-                            <?php if (in_array('hold', $secondary, true)): ?>
-                                <input type="text" name="hold_reason" placeholder="Hold reason (required for hold)" class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg">
-                            <?php endif; ?>
-                        </form>
                     <?php elseif ($tab === 'sent' || $progressStatus === 'Dispatched'): ?>
-                        <div class="rounded-lg bg-green-50 border border-green-200 p-4 text-center">
+                        <div class="wo-sent-badge">
                             <i data-lucide="check-circle" class="h-8 w-8 text-green-600 mx-auto mb-2" aria-hidden="true"></i>
-                            <p class="font-semibold text-green-800">Sent</p>
+                            <p class="font-semibold text-green-800"><?php echo $workflowMode === 'dispatch' ? 'Sent back' : 'Sent'; ?></p>
                             <?php if (!empty($item['designated_next_department_name'])): ?>
-                                <p class="text-xs text-green-700 mt-1">Designated to <?php echo htmlspecialchars($item['designated_next_department_name']); ?></p>
+                                <p class="text-xs text-green-700 mt-1">
+                                    <?php echo $workflowMode === 'dispatch' ? 'Returned to' : 'Designated to'; ?>
+                                    <?php echo htmlspecialchars($item['designated_next_department_name']); ?>
+                                </p>
                             <?php endif; ?>
                         </div>
+                    <?php else: ?>
+                        <p class="wo-card-actions-label">Status</p>
+                        <p class="text-sm text-gray-600">No queue action is available for this job right now.</p>
+                        <?php if (!empty($secondary)): ?>
+                            <form method="POST" action="queue_action" class="wo-secondary-actions">
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token('work_order_queue_action')); ?>">
+                                <input type="hidden" name="progress_id" value="<?php echo (int) $item['progress_id']; ?>">
+                                <input type="hidden" name="redirect_department" value="<?php echo htmlspecialchars($departmentSlug); ?>">
+                                <input type="hidden" name="redirect_tab" value="<?php echo htmlspecialchars($tab); ?>">
+                                <?php foreach ($secondary as $actionKey): ?>
+                                    <?php if ($actionKey === 'send_back'): ?>
+                                        <a href="send_back?progress_id=<?php echo (int) $item['progress_id']; ?>"
+                                            class="wo-secondary-btn is-danger">
+                                            <i data-lucide="undo-2" class="h-3.5 w-3.5" aria-hidden="true"></i>
+                                            <?php echo htmlspecialchars($secondaryActionLabels[$actionKey] ?? ucfirst($actionKey)); ?>
+                                        </a>
+                                    <?php else: ?>
+                                        <button type="submit" name="action" value="<?php echo htmlspecialchars($actionKey); ?>"
+                                            class="wo-secondary-btn">
+                                            <?php echo htmlspecialchars($secondaryActionLabels[$actionKey] ?? ucfirst($actionKey)); ?>
+                                        </button>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </form>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
             </div>
@@ -391,9 +444,16 @@ include '../../includes/header.php';
     <?php if (empty($queueItems)): ?>
         <div class="bg-white shadow rounded-xl p-12 text-center text-gray-500">
             <?php if ($tab === 'ready'): ?>
-                No jobs waiting to send.
-                <?php if ($workflowMode !== 'routing'): ?>
-                    Mark jobs complete in <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>&tab=active" class="text-indigo-600 hover:underline">In progress</a> first.
+                <?php if ($workflowMode === 'dispatch'): ?>
+                    No jobs are ready for dispatch right now.
+                    <?php if ($tabCounts['incoming'] > 0): ?>
+                        Receive incoming jobs in the <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>&tab=incoming" class="text-indigo-600 hover:underline">Incoming</a> tab first.
+                    <?php endif; ?>
+                <?php else: ?>
+                    No jobs waiting to send.
+                    <?php if ($workflowMode !== 'routing'): ?>
+                        Mark jobs complete in <a href="workspace?department=<?php echo urlencode($departmentSlug); ?>&tab=active" class="text-indigo-600 hover:underline">In progress</a> first.
+                    <?php endif; ?>
                 <?php endif; ?>
             <?php elseif ($tab === 'incoming'): ?>
                 No incoming jobs for <?php echo htmlspecialchars($currentDepartment['name']); ?> right now.
