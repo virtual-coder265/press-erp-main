@@ -80,15 +80,19 @@ try {
         empty($_SESSION['profile_skip_warning']) &&
         setting_truthy('profile_enforcement_enabled', true)
     ) {
-        $current_script = $_SERVER['PHP_SELF'] ?? '';
-        
-        // Exclude specific paths like auth and the profile page itself (to prevent infinite loops)
-        if (strpos($current_script, 'modules/user-account/profile') === false && 
-            strpos($current_script, 'modules/auth/logout') === false && 
-            strpos($current_script, 'modules/auth/login') === false) {
-            
-            // Check cache
-            if (!isset($_SESSION['profile_enforced_valid']) || !$_SESSION['profile_enforced_valid']) {
+        $profile_setup_exempt = app_request_matches(
+            'modules/user-account/profile',
+            'modules/user-account/push_subscription',
+            'modules/user-account/push_test',
+            'modules/user-account/notifications',
+            'modules/user-account/sse_stream',
+            'modules/user-account/notification_action',
+            'modules/auth/logout',
+            'modules/auth/login',
+            'push-sw'
+        );
+
+        if (!$profile_setup_exempt && (!isset($_SESSION['profile_enforced_valid']) || !$_SESSION['profile_enforced_valid'])) {
                 $columnCheckStmt = $pdo->query("
                     SELECT COLUMN_NAME
                     FROM information_schema.COLUMNS
@@ -117,7 +121,6 @@ try {
                 } else {
                     $_SESSION['profile_enforced_valid'] = true;
                 }
-            }
         }
     }
 
@@ -127,13 +130,16 @@ try {
         empty($_SESSION['notifications_skip_warning']) &&
         setting_truthy('profile_enforcement_enabled', true)
     ) {
-        $current_script = $_SERVER['PHP_SELF'] ?? '';
-        $notification_setup_exempt = (
-            strpos($current_script, 'modules/user-account/profile') !== false ||
-            strpos($current_script, 'modules/user-account/push_subscription') !== false ||
-            strpos($current_script, 'modules/user-account/push_test') !== false ||
-            strpos($current_script, 'modules/auth/logout') !== false ||
-            strpos($current_script, 'modules/auth/login') !== false
+        $notification_setup_exempt = app_request_matches(
+            'modules/user-account/profile',
+            'modules/user-account/push_subscription',
+            'modules/user-account/push_test',
+            'modules/user-account/notifications',
+            'modules/user-account/sse_stream',
+            'modules/user-account/notification_action',
+            'modules/auth/logout',
+            'modules/auth/login',
+            'push-sw'
         );
 
         if (!$notification_setup_exempt) {

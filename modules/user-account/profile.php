@@ -107,9 +107,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['skip_profile']) && !
                     'force' => true,
                 ]);
 
+                $pushManagerForSave = new BrowserPushManager($pdo);
                 if (
                     notification_prefs_user_has_push_subscription($pdo, $user_id)
-                    || !setting_truthy('notification_push_enabled', true)
+                    || !notification_prefs_push_required($pdo)
                     || (($_POST['browser_push_ready'] ?? '') === '1')
                 ) {
                     $_SESSION['notifications_enforced_valid'] = true;
@@ -147,7 +148,9 @@ $is_force_update = isset($_GET['action']) && $_GET['action'] === 'force_update';
 $browserPushManager = new BrowserPushManager($pdo);
 $pushStatus = $browserPushManager->getStatus($user_id);
 $needsNotificationSetup = $is_force_update && notification_prefs_user_needs_setup($pdo, $user_id);
-$pushSystemEnabled = function_exists('setting_truthy') && setting_truthy('notification_push_enabled', true);
+$pushSystemEnabled = notification_prefs_push_required($pdo);
+$pushBrowserSupported = !empty($pushStatus['supported']);
+$pushPushAvailable = $pushSystemEnabled && $pushBrowserSupported && !empty($pushStatus['enabled']);
 $hasValidPhone = (!empty($user['phone']) && preg_match('/^\+265(99|88|98|89)\d{5,}$/', (string) $user['phone']))
     || (!empty($user['whatsapp_phone']) && preg_match('/^\+265(99|88|98|89)\d{5,}$/', (string) $user['whatsapp_phone']));
 $notificationOnlySetup = $needsNotificationSetup && $hasValidPhone;
@@ -257,7 +260,7 @@ $notificationOnlySetup = $needsNotificationSetup && $hasValidPhone;
 
                 <form method="POST" action="profile<?php echo $is_force_update ? '?action=force_update' : ''; ?>" class="space-y-6" id="profileUpdateForm">
                     <input type="hidden" name="setup_notifications" id="setup-notifications-flag" value="<?php echo $is_force_update ? '1' : '0'; ?>">
-                    <input type="hidden" name="browser_push_ready" id="browser-push-ready-flag" value="<?php echo (!$pushSystemEnabled || !empty($pushStatus['has_active_subscription'])) ? '1' : '0'; ?>">
+                    <input type="hidden" name="browser_push_ready" id="browser-push-ready-flag" value="<?php echo (!$pushPushAvailable || !empty($pushStatus['has_active_subscription'])) ? '1' : '0'; ?>">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div class="md:col-span-2">
                             <label class="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-wide">Full Name</label>
@@ -333,7 +336,7 @@ $notificationOnlySetup = $needsNotificationSetup && $hasValidPhone;
                             <li class="flex items-center gap-2"><i class="material-icons text-green-600 text-base">check_circle</i> WhatsApp/SMS when a matching phone number is provided</li>
                         </ul>
 
-                        <?php if ($pushSystemEnabled): ?>
+                        <?php if ($pushPushAvailable): ?>
                         <div class="flex flex-wrap items-center gap-3 pt-2">
                             <span id="profile-push-status" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold <?php echo !empty($pushStatus['has_active_subscription']) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'; ?>">
                                 <?php echo !empty($pushStatus['has_active_subscription']) ? 'Browser push active' : 'Browser push required'; ?>
@@ -356,7 +359,15 @@ $notificationOnlySetup = $needsNotificationSetup && $hasValidPhone;
                             <?php endif; ?>
                         </p>
                         <?php else: ?>
-                        <p class="text-xs text-gray-500">Browser push is disabled system-wide. Email and phone channels will still be enabled.</p>
+                        <p class="text-xs text-gray-500">
+                            <?php if (!$pushBrowserSupported): ?>
+                                Browser push delivery is not configured on the server yet (Node.js web-push helper or VAPID keys missing). You can still complete setup with email and phone alerts.
+                            <?php elseif (!$pushSystemEnabled): ?>
+                                Browser push is disabled system-wide. Email and phone channels will still be enabled.
+                            <?php else: ?>
+                                Browser push is unavailable in this browser or environment. Email and phone channels will still be enabled.
+                            <?php endif; ?>
+                        </p>
                         <?php endif; ?>
                     </div>
                     <?php endif; ?>
@@ -405,7 +416,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var pushStatusEl = document.getElementById('profile-push-status');
     var pushDetailEl = document.getElementById('profile-push-detail');
     var pushReadyFlag = document.getElementById('browser-push-ready-flag');
-    var notificationSetupRequired = <?php echo ($is_force_update && $pushSystemEnabled) ? 'true' : 'false'; ?>;
+    var notificationSetupRequired = <?php echo ($is_force_update && $pushPushAvailable) ? 'true' : 'false'; ?>;
     var notificationOnlySetup = updateButton && updateButton.dataset.notificationOnly === '1';
     var pushAlreadyActive = <?php echo !empty($pushStatus['has_active_subscription']) ? 'true' : 'false'; ?>;
     var pushReady = pushAlreadyActive || !notificationSetupRequired;

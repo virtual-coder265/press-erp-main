@@ -1,5 +1,19 @@
 (function () {
     const config = window.PRESS_ERP_PUSH_CONFIG || null;
+
+    function unavailableError() {
+        return Promise.reject(new Error('Browser push is not available on this page. Refresh and try again.'));
+    }
+
+    window.PressErpPush = {
+        enable: unavailableError,
+        disable: unavailableError,
+        refreshStatus: unavailableError,
+        wasRecentDelivery: function () {
+            return false;
+        }
+    };
+
     if (!config) {
         return;
     }
@@ -93,6 +107,28 @@
         return outputArray;
     }
 
+    async function parseJsonResponse(response) {
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        const raw = await response.text();
+
+        if (raw === '') {
+            return {
+                success: false,
+                message: 'Empty response from the push notification service.',
+            };
+        }
+
+        if (contentType.indexOf('application/json') === -1 && raw.trim().charAt(0) === '<') {
+            throw new Error('Push notification service returned an HTML page instead of JSON. Refresh the page and try again.');
+        }
+
+        try {
+            return JSON.parse(raw);
+        } catch (error) {
+            throw new Error('Unable to read the push notification server response.');
+        }
+    }
+
     async function registerServiceWorker() {
         if (!isSupported()) {
             throw new Error('Browser push is not supported in this browser.');
@@ -124,6 +160,10 @@
     async function syncSubscription(requestPermission) {
         if (!config.enabled) {
             throw new Error('Browser push is disabled by the system administrator.');
+        }
+
+        if (!config.publicKey) {
+            throw new Error('Browser push is not configured on the server yet.');
         }
 
         if (!isSecureEnough()) {
@@ -159,7 +199,7 @@
                 subscription: subscription.toJSON()
             })
         });
-        const payload = await response.json();
+        const payload = await parseJsonResponse(response);
 
         if (!response.ok || !payload.success) {
             throw new Error(payload.message || 'Unable to save the browser push subscription.');
@@ -195,7 +235,7 @@
                 endpoint: endpoint
             })
         });
-        const payload = await response.json();
+        const payload = await parseJsonResponse(response);
 
         if (!response.ok || !payload.success) {
             throw new Error(payload.message || 'Unable to remove the browser push subscription.');
@@ -214,7 +254,7 @@
                 'Accept': 'application/json'
             }
         });
-        const payload = await response.json();
+        const payload = await parseJsonResponse(response);
 
         if (!response.ok || !payload.success) {
             throw new Error(payload.message || 'Unable to read browser push status.');

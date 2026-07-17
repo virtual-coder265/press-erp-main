@@ -100,6 +100,76 @@ function checkAuth() {
     }
 }
 
+if (!function_exists('checkAuthApi')) {
+    /**
+     * API-friendly auth check that returns JSON instead of redirecting to HTML login.
+     */
+    function checkAuthApi(): void
+    {
+        if (!isset($_SESSION['user_id'])) {
+            header('Content-Type: application/json');
+            http_response_code(401);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Your session has expired. Please sign in again.',
+            ]);
+            exit;
+        }
+    }
+}
+
+if (!function_exists('app_request_path')) {
+    /**
+     * Normalized request path for routing/enforcement checks (lowercase, forward slashes).
+     */
+    function app_request_path(): string
+    {
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        foreach ([
+            (string) ($_SERVER['REQUEST_URI'] ?? ''),
+            (string) ($_SERVER['PHP_SELF'] ?? ''),
+            (string) ($_SERVER['SCRIPT_NAME'] ?? ''),
+        ] as $candidate) {
+            $path = parse_url($candidate, PHP_URL_PATH);
+            if (!is_string($path) || $path === '') {
+                $path = $candidate;
+            }
+
+            $path = strtolower(str_replace('\\', '/', $path));
+            if ($path !== '') {
+                $cached = $path;
+                return $cached;
+            }
+        }
+
+        $cached = '';
+        return $cached;
+    }
+}
+
+if (!function_exists('app_request_matches')) {
+    function app_request_matches(string ...$needles): bool
+    {
+        $path = app_request_path();
+        if ($path === '') {
+            return false;
+        }
+
+        foreach ($needles as $needle) {
+            $needle = strtolower(str_replace('\\', '/', $needle));
+            if ($needle !== '' && strpos($path, $needle) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
 // Helper to check if current user has a specific permission
 function hasPermission($slug) {
     // System Admin has all permissions by default

@@ -63,6 +63,29 @@ if (!function_exists('notification_prefs_user_has_push_subscription')) {
     }
 }
 
+if (!function_exists('notification_prefs_push_required')) {
+    function notification_prefs_push_required(PDO $pdo): bool
+    {
+        if (!function_exists('setting_truthy') || !setting_truthy('notification_push_enabled', true)) {
+            return false;
+        }
+
+        if (!class_exists('BrowserPushManager')) {
+            return false;
+        }
+
+        try {
+            if (!class_exists('BrowserPushManager')) {
+                require_once __DIR__ . '/../libs/BrowserPushManager.php';
+            }
+            $manager = new BrowserPushManager($pdo);
+            return $manager->isEnabled();
+        } catch (Throwable $exception) {
+            return false;
+        }
+    }
+}
+
 if (!function_exists('notification_prefs_user_needs_setup')) {
     function notification_prefs_user_needs_setup(PDO $pdo, int $userId): bool
     {
@@ -72,6 +95,10 @@ if (!function_exists('notification_prefs_user_needs_setup')) {
 
         if (!notification_prefs_user_is_configured($pdo, $userId)) {
             return true;
+        }
+
+        if (!notification_prefs_push_required($pdo)) {
+            return false;
         }
 
         return !notification_prefs_user_has_push_subscription($pdo, $userId);
