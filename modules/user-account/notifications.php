@@ -9,12 +9,13 @@ require_once ROOT_PATH . 'libs/BrowserPushManager.php';
 $user_id = intval($_SESSION['user_id']);
 $success_message = '';
 $error_message = '';
-$types = ['message', 'task', 'security', 'reminder'];
+$types = notification_pref_types();
 $notif_types = [
     'message' => ['title' => 'Direct Messages', 'desc' => 'Notifications when someone sends you a message.'],
     'task' => ['title' => 'Task Assignments', 'desc' => 'Notifications for new tasks or status updates.'],
     'security' => ['title' => 'Security Alerts', 'desc' => 'Important alerts about your account login and security.'],
-    'reminder' => ['title' => 'System Reminders', 'desc' => 'Automated reminders for deadlines and upcoming events.']
+    'reminder' => ['title' => 'System Reminders', 'desc' => 'Automated reminders for deadlines and upcoming events.'],
+    'work_order' => ['title' => 'Work Orders', 'desc' => 'Alerts when new jobs arrive in your production department queue.'],
 ];
 
 $notifManager = new NotificationManager($pdo);

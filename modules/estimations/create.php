@@ -152,7 +152,7 @@ include '../../includes/header.php';
 
 <!-- Form -->
 <div class="bg-white shadow-md rounded-xl p-8">
-    <form id="estimationForm" method="POST" action="save" novalidate>
+    <form id="estimationForm" method="POST" action="save" novalidate data-unsaved-guard data-unsaved-label="the estimation form" data-unsaved-discard="reload">
 
         <!-- ===== STEP 1: Client & Job ===== -->
         <div id="step-1" class="step-content">

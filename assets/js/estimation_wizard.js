@@ -50,6 +50,10 @@ $(document).ready(function () {
                 }
                 lastAutoSaveTime = new Date();
                 showAutoSaveNotification('Draft saved at ' + lastAutoSaveTime.toLocaleTimeString());
+                var estimationForm = document.getElementById('estimationForm');
+                if (estimationForm && window.FormUnsavedGuard) {
+                    window.FormUnsavedGuard.resetBaseline(estimationForm);
+                }
             } else {
                 console.warn('Auto-save failed:', data.message);
             }
@@ -116,6 +120,28 @@ $(document).ready(function () {
     }
 
     loadFormData();
+
+    function syncUnsavedBaseline() {
+        var estimationForm = document.getElementById('estimationForm');
+        if (estimationForm && window.FormUnsavedGuard) {
+            window.FormUnsavedGuard.resetBaseline(estimationForm);
+        }
+    }
+
+    syncUnsavedBaseline();
+    setTimeout(syncUnsavedBaseline, 0);
+
+    document.addEventListener('form-unsaved-discarded', function (event) {
+        if (event.detail && event.detail.action === 'reload') {
+            try {
+                localStorage.removeItem('estimation_draft_v4');
+            } catch (storageError) {
+                /* best-effort */
+            }
+            return;
+        }
+        calculateTotals();
+    });
 
     // Start auto-save timer if in draft mode
     if (draftMode) {

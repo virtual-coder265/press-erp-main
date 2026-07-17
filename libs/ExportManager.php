@@ -14,7 +14,36 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 
 class ExportManager {
-    
+
+    /**
+     * Resolve business branding for tabular exports.
+     */
+    public static function getReportBranding(): array
+    {
+        if (function_exists('reports_get_branding')) {
+            return reports_get_branding();
+        }
+
+        if (function_exists('get_business_pdf_settings')) {
+            $settings = get_business_pdf_settings();
+            return [
+                'business_name' => trim((string) ($settings['business_name'] ?? 'Press ERP')),
+                'business_address' => trim((string) ($settings['business_address'] ?? '')),
+                'business_phone' => trim((string) ($settings['business_phone'] ?? '')),
+                'business_email' => trim((string) ($settings['business_email'] ?? '')),
+                'business_logo' => trim((string) ($settings['business_logo'] ?? '')),
+            ];
+        }
+
+        return [
+            'business_name' => 'Press ERP',
+            'business_address' => '',
+            'business_phone' => '',
+            'business_email' => '',
+            'business_logo' => '',
+        ];
+    }
+
     /**
      * Export data to PDF
      * 
@@ -30,13 +59,16 @@ class ExportManager {
         $pageSize = $options['pageSize'] ?? 'A4';
         $fontSize = $options['fontSize'] ?? 9;
         $includeDate = $options['includeDate'] ?? true;
+        $branded = $options['branded'] ?? true;
+        $periodLabel = trim((string) ($options['periodLabel'] ?? ''));
+        $branding = self::getReportBranding();
         
         // Create new PDF document
         $pdf = new TCPDF($orientation, PDF_UNIT, $pageSize, true, 'UTF-8', false);
         
         // Set document information
-        $pdf->SetCreator('Press ERP');
-        $pdf->SetAuthor('Press ERP System');
+        $pdf->SetCreator($branding['business_name'] ?: 'Press ERP');
+        $pdf->SetAuthor($branding['business_name'] ?: 'Press ERP System');
         $pdf->SetTitle($title);
         $pdf->SetSubject($title);
         
@@ -50,6 +82,41 @@ class ExportManager {
         
         // Add a page
         $pdf->AddPage();
+
+        $startY = 12;
+        if ($branded) {
+            $logoPath = null;
+            if (!empty($branding['business_logo']) && function_exists('resolve_pdf_embed_image_src')) {
+                $logoSrc = resolve_pdf_embed_image_src($branding['business_logo']);
+                if ($logoSrc && strpos($logoSrc, 'data:image') === 0) {
+                    $logoPath = '@' . base64_decode(substr($logoSrc, strpos($logoSrc, ',') + 1));
+                }
+            }
+
+            if ($logoPath) {
+                $pdf->Image($logoPath, 10, $startY, 22, 0, '', '', '', false, 300);
+            }
+
+            $pdf->SetFont('helvetica', 'B', 13);
+            $pdf->SetXY($logoPath ? 36 : 10, $startY);
+            $pdf->Cell(0, 6, $branding['business_name'] ?: 'Press ERP', 0, 1, 'L');
+
+            $pdf->SetFont('helvetica', '', 8);
+            $contactParts = array_filter([
+                $branding['business_address'] ?? '',
+                $branding['business_phone'] ?? '',
+                $branding['business_email'] ?? '',
+            ]);
+            if (!empty($contactParts)) {
+                $pdf->SetX($logoPath ? 36 : 10);
+                $pdf->Cell(0, 4, implode(' | ', $contactParts), 0, 1, 'L');
+            }
+
+            $pdf->Ln(4);
+            $pdf->SetDrawColor(41, 128, 185);
+            $pdf->Line(10, $pdf->GetY(), $pdf->getPageWidth() - 10, $pdf->GetY());
+            $pdf->Ln(4);
+        }
         
         // Set font
         $pdf->SetFont('helvetica', 'B', 16);
@@ -57,10 +124,13 @@ class ExportManager {
         // Title
         $pdf->Cell(0, 10, $title, 0, 1, 'C');
         
-        // Date
+        // Date / period
         if ($includeDate) {
             $pdf->SetFont('helvetica', '', 10);
             $pdf->Cell(0, 6, 'Generated: ' . date('F d, Y H:i:s'), 0, 1, 'C');
+            if ($periodLabel !== '') {
+                $pdf->Cell(0, 6, 'Period: ' . $periodLabel, 0, 1, 'C');
+            }
         }
         
         $pdf->Ln(5);
@@ -116,16 +186,39 @@ class ExportManager {
      */
     public static function exportToExcel($data, $columns, $title, $filename, $options = []) {
         $includeDate = $options['includeDate'] ?? true;
+        $branded = $options['branded'] ?? true;
+        $periodLabel = trim((string) ($options['periodLabel'] ?? ''));
+        $branding = self::getReportBranding();
         
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle(substr($title, 0, 31)); // Excel sheet name limit
         
         $row = 1;
+        $lastCol = self::getColumnLetter(count($columns));
+
+        if ($branded) {
+            $sheet->setCellValue('A' . $row, $branding['business_name'] ?: 'Press ERP');
+            $sheet->mergeCells('A' . $row . ':' . $lastCol . $row);
+            $sheet->getStyle('A' . $row)->getFont()->setBold(true)->setSize(12);
+            $row++;
+
+            $contactParts = array_filter([
+                $branding['business_address'] ?? '',
+                $branding['business_phone'] ?? '',
+                $branding['business_email'] ?? '',
+            ]);
+            if (!empty($contactParts)) {
+                $sheet->setCellValue('A' . $row, implode(' | ', $contactParts));
+                $sheet->mergeCells('A' . $row . ':' . $lastCol . $row);
+                $sheet->getStyle('A' . $row)->getFont()->setSize(9);
+                $row++;
+            }
+        }
         
         // Add title
         $sheet->setCellValue('A' . $row, $title);
-        $sheet->mergeCells('A' . $row . ':' . self::getColumnLetter(count($columns)) . $row);
+        $sheet->mergeCells('A' . $row . ':' . $lastCol . $row);
         $sheet->getStyle('A' . $row)->getFont()->setBold(true)->setSize(14);
         $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $row++;
@@ -133,9 +226,15 @@ class ExportManager {
         // Add date
         if ($includeDate) {
             $sheet->setCellValue('A' . $row, 'Generated: ' . date('F d, Y H:i:s'));
-            $sheet->mergeCells('A' . $row . ':' . self::getColumnLetter(count($columns)) . $row);
+            $sheet->mergeCells('A' . $row . ':' . $lastCol . $row);
             $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             $row++;
+            if ($periodLabel !== '') {
+                $sheet->setCellValue('A' . $row, 'Period: ' . $periodLabel);
+                $sheet->mergeCells('A' . $row . ':' . $lastCol . $row);
+                $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $row++;
+            }
         }
         
         $row++; // Empty row
@@ -178,9 +277,11 @@ class ExportManager {
         }
         
         // Add borders
-        $lastCol = self::getColumnLetter(count($columns));
+        $headerRow = $row - count($data) - 1;
         $lastRow = $row - 1;
-        $sheet->getStyle('A4:' . $lastCol . $lastRow)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        if ($headerRow >= 1 && $lastRow >= $headerRow) {
+            $sheet->getStyle('A' . $headerRow . ':' . $lastCol . $lastRow)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        }
         
         // Output file
         if (ob_get_length()) ob_end_clean();

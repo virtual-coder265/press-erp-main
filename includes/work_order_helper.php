@@ -463,6 +463,8 @@ if (!function_exists('work_order_bootstrap')) {
             return;
         }
         work_order_ensure_schema($pdo);
+        require_once __DIR__ . '/work_order_notification_helper.php';
+        work_order_notification_ensure_prefs($pdo);
         require_once __DIR__ . '/../libs/MoneySchemaMigrator.php';
         MoneySchemaMigrator::ensure($pdo);
         $bootstrapped = true;
@@ -701,6 +703,79 @@ if (!function_exists('work_order_derive_job_specs')) {
     }
 }
 
+if (!function_exists('work_order_format_invoice_line_items')) {
+    /**
+     * Turn invoice line items (items_json or invoice_items rows) into readable job text.
+     */
+    function work_order_format_invoice_line_items($items): string
+    {
+        if (!is_array($items) || $items === []) {
+            return '';
+        }
+
+        $lines = [];
+        foreach ($items as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $description = trim((string) ($row['description'] ?? ''));
+            if ($description === '') {
+                continue;
+            }
+
+            $quantity = isset($row['quantity']) && $row['quantity'] !== ''
+                ? (float) $row['quantity']
+                : 1.0;
+            if ($quantity <= 0) {
+                $quantity = 1.0;
+            }
+
+            if ($quantity > 1 && abs($quantity - (int) $quantity) < 0.0001) {
+                $lines[] = $description . ' (x' . (int) $quantity . ')';
+            } else {
+                $lines[] = $description;
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+}
+
+if (!function_exists('work_order_job_description_from_invoice')) {
+    function work_order_job_description_from_invoice(PDO $pdo, array $invoice, array $estimation, array $derived): string
+    {
+        $fromDerived = trim((string) ($derived['job_description'] ?? ''));
+        if ($fromDerived !== '') {
+            return $fromDerived;
+        }
+
+        $fromEstimation = trim((string) ($estimation['job_description'] ?? $invoice['est_job_description'] ?? ''));
+        if ($fromEstimation !== '') {
+            return $fromEstimation;
+        }
+
+        $fromItemsJson = work_order_format_invoice_line_items(
+            json_decode((string) ($invoice['items_json'] ?? '[]'), true)
+        );
+        if ($fromItemsJson !== '') {
+            return $fromItemsJson;
+        }
+
+        $invoiceId = (int) ($invoice['id'] ?? 0);
+        if ($invoiceId > 0) {
+            $itemStmt = $pdo->prepare('SELECT description, quantity FROM invoice_items WHERE invoice_id = ? ORDER BY id ASC');
+            $itemStmt->execute([$invoiceId]);
+            $fromTable = work_order_format_invoice_line_items($itemStmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+            if ($fromTable !== '') {
+                return $fromTable;
+            }
+        }
+
+        return trim((string) ($invoice['customer_name'] ?? ''));
+    }
+}
+
 if (!function_exists('work_order_prefill_from_invoice')) {
     function work_order_prefill_from_invoice(PDO $pdo, int $invoiceId): array
     {
@@ -736,16 +811,190 @@ if (!function_exists('work_order_prefill_from_invoice')) {
             'estimation' => $estimation,
             'children' => $children,
             'ministry_department' => $invoice['department'] ?? '',
-            'job_description' => $derived['job_description'] ?: ($invoice['items_json'] ?? ''),
+            'job_description' => work_order_job_description_from_invoice($pdo, $invoice, $estimation, $derived),
             'quantity' => $derived['quantity'],
             'pages_count' => $derived['pages_count'],
             'size_deep' => $derived['size_deep'],
             'size_wide' => $derived['size_wide'],
-            'order_ref_lpo' => '',
+            'order_ref_lpo' => trim((string) ($invoice['invoice_number'] ?? '')),
             'total_cost' => (float) ($invoice['total_amount'] ?? 0),
             'amount_paid' => (float) ($invoice['paid_amount'] ?? 0),
             'balance' => (float) ($invoice['balance'] ?? 0),
         ];
+    }
+}
+
+if (!function_exists('work_order_blank_prefill')) {
+    function work_order_blank_prefill(): array
+    {
+        return [
+            'invoice' => null,
+            'estimation' => [],
+            'children' => [],
+            'ministry_department' => '',
+            'job_description' => '',
+            'quantity' => null,
+            'pages_count' => null,
+            'size_deep' => '',
+            'size_wide' => '',
+            'order_ref_lpo' => '',
+            'total_cost' => 0.0,
+            'amount_paid' => 0.0,
+            'balance' => 0.0,
+        ];
+    }
+}
+
+if (!function_exists('work_order_fetch_linkable_invoices')) {
+    function work_order_fetch_linkable_invoices(PDO $pdo, ?int $excludeInvoiceId = null): array
+    {
+        work_order_bootstrap($pdo);
+
+        $sql = "
+            SELECT i.id, i.invoice_number, i.customer_name, i.total_amount, i.paid_amount, i.balance,
+                   e.estimation_number
+            FROM invoices i
+            LEFT JOIN work_orders wo ON wo.invoice_id = i.id
+            LEFT JOIN estimations e ON i.estimation_id = e.id
+            WHERE wo.id IS NULL
+        ";
+        $params = [];
+        if ($excludeInvoiceId !== null && $excludeInvoiceId > 0) {
+            $sql .= " OR i.id = :include_invoice_id";
+            $params['include_invoice_id'] = $excludeInvoiceId;
+        }
+        $sql .= " ORDER BY i.generated_date DESC, i.id DESC LIMIT 250";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+}
+
+if (!function_exists('work_order_prefill_to_json')) {
+    function work_order_prefill_to_json(array $prefill): array
+    {
+        $invoice = $prefill['invoice'] ?? null;
+        $estimation = $prefill['estimation'] ?? [];
+
+        return [
+            'invoice_id' => $invoice ? (int) ($invoice['id'] ?? 0) : 0,
+            'invoice_number' => (string) ($invoice['invoice_number'] ?? ''),
+            'estimation_number' => (string) ($estimation['estimation_number'] ?? ''),
+            'customer_name' => (string) ($invoice['customer_name'] ?? ''),
+            'ministry_department' => (string) ($prefill['ministry_department'] ?? ''),
+            'job_description' => (string) ($prefill['job_description'] ?? ''),
+            'quantity' => $prefill['quantity'],
+            'pages_count' => $prefill['pages_count'],
+            'size_deep' => (string) ($prefill['size_deep'] ?? ''),
+            'size_wide' => (string) ($prefill['size_wide'] ?? ''),
+            'order_ref_lpo' => (string) ($prefill['order_ref_lpo'] ?? ''),
+            'total_cost' => (float) ($prefill['total_cost'] ?? 0),
+            'amount_paid' => (float) ($prefill['amount_paid'] ?? 0),
+            'balance' => (float) ($prefill['balance'] ?? 0),
+        ];
+    }
+}
+
+if (!function_exists('work_order_print_sections')) {
+    function work_order_print_sections(): array
+    {
+        return [
+            'full' => 'Full Work Order',
+            'job' => 'Job Header & Costing',
+            'forme' => 'Forme Dressing & Margins',
+            'composing' => 'Composing / Photosetters',
+            'letterpress' => 'Letterpress / Offset',
+            'bookbinding' => 'Bookbinding',
+            'materials' => 'Paper & Materials',
+        ];
+    }
+}
+
+if (!function_exists('work_order_form_section_print_section')) {
+    function work_order_form_section_print_section(string $formSection): string
+    {
+        $map = [
+            'composing' => 'composing',
+            'letterpress' => 'letterpress',
+            'bookbinding' => 'bookbinding',
+            'dispatch' => 'job',
+        ];
+
+        return $map[$formSection] ?? 'full';
+    }
+}
+
+if (!function_exists('work_order_department_print_section')) {
+    function work_order_department_print_section(string $departmentSlug): string
+    {
+        $formSection = work_order_department_form_section($departmentSlug);
+
+        return $formSection === null
+            ? 'full'
+            : work_order_form_section_print_section($formSection);
+    }
+}
+
+if (!function_exists('work_order_prepare_print_document')) {
+    /**
+     * Load work order data for HTML print or PDF export.
+     *
+     * @return array{workOrder:array,productionForm:array,formeDressing:array,trimMargins:array,printSection:string,sectionTitle:string}
+     */
+    function work_order_prepare_print_document(PDO $pdo, int $workOrderId, ?string $section = null): array
+    {
+        work_order_bootstrap($pdo);
+
+        $workOrder = work_order_fetch_one($pdo, $workOrderId);
+        if (!$workOrder) {
+            throw new RuntimeException('Work order not found.');
+        }
+
+        $spec = work_order_fetch_specifications($pdo, $workOrderId);
+        $productionForm = work_order_decode_json_field($spec['production_form_json'] ?? null);
+        $formeDressing = work_order_decode_json_field($workOrder['forme_dressing_json'] ?? null);
+        $trimMargins = work_order_decode_json_field($workOrder['trim_margins_json'] ?? null);
+
+        $sections = work_order_print_sections();
+        $printSection = trim((string) ($section ?? 'full'));
+        if (!isset($sections[$printSection])) {
+            $printSection = 'full';
+        }
+
+        return [
+            'workOrder' => $workOrder,
+            'productionForm' => $productionForm,
+            'formeDressing' => $formeDressing,
+            'trimMargins' => $trimMargins,
+            'printSection' => $printSection,
+            'sectionTitle' => $sections[$printSection],
+        ];
+    }
+}
+
+if (!function_exists('work_order_pdf_href')) {
+    function work_order_pdf_href(int $workOrderId, string $section = 'full', bool $download = true): string
+    {
+        $query = http_build_query([
+            'id' => $workOrderId,
+            'section' => $section,
+            'download' => $download ? '1' : '0',
+        ]);
+
+        return 'pdf?' . $query;
+    }
+}
+
+if (!function_exists('work_order_print_href')) {
+    function work_order_print_href(int $workOrderId, string $section = 'full'): string
+    {
+        $query = http_build_query([
+            'id' => $workOrderId,
+            'section' => $section,
+        ]);
+
+        return 'print?' . $query;
     }
 }
 
@@ -1002,7 +1251,8 @@ if (!function_exists('work_order_create_from_invoice')) {
 
         $departmentMap = work_order_department_map($pdo);
 
-        $jobDescription = trim((string) ($overrides['job_description'] ?? $estimation['job_description'] ?? $invoice['items_json'] ?? $invoice['customer_name'] ?? ''));
+        $derived = work_order_derive_job_specs($estimation, $children);
+        $jobDescription = trim((string) ($overrides['job_description'] ?? work_order_job_description_from_invoice($pdo, $invoice, $estimation, $derived)));
         $dueDate = $overrides['due_date'] ?? ($invoice['due_date'] ?? null);
         $priority = $overrides['priority'] ?? ((float) ($invoice['balance'] ?? 0) > 0 ? 'Normal' : 'Urgent');
         if (!in_array($priority, ['Normal', 'Urgent', 'Critical'], true)) {
@@ -1499,6 +1749,18 @@ if (!function_exists('work_order_send_to_origination')) {
 
             $pdo->commit();
 
+            require_once __DIR__ . '/work_order_notification_helper.php';
+            work_order_notify_department_incoming(
+                $pdo,
+                (int) $origination['id'],
+                'origination',
+                (string) $origination['name'],
+                $workOrderId,
+                (string) $workOrder['work_order_number'],
+                $userId,
+                'send_to_origination'
+            );
+
             return [
                 'work_order_id' => $workOrderId,
                 'work_order_number' => (string) $workOrder['work_order_number'],
@@ -1774,6 +2036,20 @@ if (!function_exists('work_order_designate_and_send')) {
             work_order_recalculate_state($pdo, (int) $progress['work_order_id'], $userId);
             $pdo->commit();
 
+            require_once __DIR__ . '/work_order_notification_helper.php';
+            work_order_notify_department_incoming(
+                $pdo,
+                $nextDepartmentId,
+                (string) ($nextDepartment['slug'] ?? ''),
+                (string) ($nextDepartment['name'] ?? 'Next department'),
+                (int) $progress['work_order_id'],
+                (string) ($progress['work_order_number'] ?? ''),
+                $userId,
+                'handoff',
+                (string) ($progress['department_name'] ?? ''),
+                $handoffNotes !== '' ? $handoffNotes : null
+            );
+
             return [
                 'work_order_id' => (int) $progress['work_order_id'],
                 'department_slug' => (string) ($progress['department_slug'] ?? ''),
@@ -2014,6 +2290,20 @@ if (!function_exists('work_order_send_back_to_sender')) {
 
             work_order_recalculate_state($pdo, (int) $progress['work_order_id'], $userId);
             $pdo->commit();
+
+            require_once __DIR__ . '/work_order_notification_helper.php';
+            work_order_notify_department_incoming(
+                $pdo,
+                $senderDepartmentId,
+                (string) ($senderDepartment['slug'] ?? ''),
+                (string) ($senderDepartment['name'] ?? 'Sender department'),
+                (int) $progress['work_order_id'],
+                (string) ($progress['work_order_number'] ?? ''),
+                $userId,
+                'send_back',
+                (string) ($progress['department_name'] ?? 'Dispatch Office'),
+                $remarks !== '' ? $remarks : null
+            );
 
             return [
                 'work_order_id' => (int) $progress['work_order_id'],

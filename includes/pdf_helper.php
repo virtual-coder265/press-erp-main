@@ -203,4 +203,35 @@ function generateProjectDocumentationPdf($project, $tasks, $documentation, $busi
     $safeName = preg_replace('/[^a-z0-9]/i', '_', $project['name']);
     generatePdf($html, 'project_report_' . $safeName, $download);
 }
+
+/**
+ * Generate a work order traveler PDF (full document or a single section).
+ *
+ * @param array $workOrder
+ * @param array $productionForm
+ * @param array $formeDressing
+ * @param array $trimMargins
+ * @param string $printSection Section key from work_order_print_sections()
+ * @param string $sectionTitle Human-readable section label
+ * @param bool $download Attachment disposition when true; inline preview when false
+ */
+function generateWorkOrderPdf(
+    array $workOrder,
+    array $productionForm,
+    array $formeDressing,
+    array $trimMargins,
+    string $printSection,
+    string $sectionTitle,
+    bool $download = true
+): void {
+    $pdfRender = true;
+
+    ob_start();
+    include __DIR__ . '/../templates/work_order_print_template.php';
+    $html = ob_get_clean();
+
+    $woNumber = preg_replace('/[^A-Za-z0-9_\-]/', '_', (string) ($workOrder['work_order_number'] ?? 'work_order'));
+    $sectionSuffix = $printSection !== 'full' ? '_' . preg_replace('/[^a-z0-9]/i', '_', $printSection) : '';
+    generatePdf($html, 'work_order_' . $woNumber . $sectionSuffix, $download);
+}
 ?>

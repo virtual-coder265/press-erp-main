@@ -311,6 +311,14 @@ include '../../includes/header.php';
                             <i data-lucide="file-text" class="h-4 w-4" aria-hidden="true"></i>
                             View full work order
                         </a>
+                        <a href="<?php echo htmlspecialchars(work_order_pdf_href((int) $item['work_order_id'], work_order_department_print_section($departmentSlug), true)); ?>" class="wo-card-link">
+                            <i data-lucide="file-down" class="h-4 w-4" aria-hidden="true"></i>
+                            Export section PDF
+                        </a>
+                        <a href="<?php echo htmlspecialchars(work_order_pdf_href((int) $item['work_order_id'], 'full', true)); ?>" class="wo-card-link">
+                            <i data-lucide="file-text" class="h-4 w-4" aria-hidden="true"></i>
+                            Export full PDF
+                        </a>
                     </div>
                 </div>
 

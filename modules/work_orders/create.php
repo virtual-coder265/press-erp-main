@@ -12,28 +12,31 @@ if (!hasPermission('manage_work_orders') && !hasPermission('manage_invoices')) {
 work_order_bootstrap($pdo);
 
 $invoiceId = (int) ($_GET['invoice_id'] ?? 0);
-if ($invoiceId <= 0) {
-    $_SESSION['error'] = 'Select an invoice to issue a work order from costing.';
-    redirect('modules/invoices/list');
-}
+$fromInvoice = $invoiceId > 0;
+$scratchMode = !$fromInvoice;
 
-$existingStmt = $pdo->prepare("SELECT id, work_order_number FROM work_orders WHERE invoice_id = ? LIMIT 1");
-$existingStmt->execute([$invoiceId]);
-$existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
-if ($existing) {
-    $_SESSION['error'] = 'A work order already exists for this invoice: ' . $existing['work_order_number'];
-    redirect('modules/work_orders/view?id=' . (int) $existing['id']);
-}
+if ($fromInvoice) {
+    $existingStmt = $pdo->prepare("SELECT id, work_order_number FROM work_orders WHERE invoice_id = ? LIMIT 1");
+    $existingStmt->execute([$invoiceId]);
+    $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+    if ($existing) {
+        $_SESSION['error'] = 'A work order already exists for this invoice: ' . $existing['work_order_number'];
+        redirect('modules/work_orders/view?id=' . (int) $existing['id']);
+    }
 
-try {
-    $prefill = work_order_prefill_from_invoice($pdo, $invoiceId);
-} catch (Throwable $exception) {
-    $_SESSION['error'] = $exception->getMessage();
-    redirect('modules/invoices/view?id=' . $invoiceId);
+    try {
+        $prefill = work_order_prefill_from_invoice($pdo, $invoiceId);
+    } catch (Throwable $exception) {
+        $_SESSION['error'] = $exception->getMessage();
+        redirect('modules/invoices/view?id=' . $invoiceId);
+    }
+} else {
+    $prefill = work_order_blank_prefill();
 }
 
 $invoice = $prefill['invoice'];
 $estimation = $prefill['estimation'];
+$linkableInvoices = $scratchMode ? work_order_fetch_linkable_invoices($pdo) : [];
 $bindingTypes = work_order_fetch_binding_types($pdo);
 $previousOrders = work_order_safe_fetch(
     $pdo,
@@ -54,18 +57,29 @@ include '../../includes/header.php';
 </style>
 
 <div class="mb-6">
-    <a href="<?php echo BASE_URL; ?>modules/invoices/view?id=<?php echo $invoiceId; ?>" class="text-indigo-600 hover:underline inline-flex items-center text-sm">
-        <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
-        Back to invoice
-    </a>
+    <?php if ($fromInvoice): ?>
+        <a href="<?php echo BASE_URL; ?>modules/invoices/view?id=<?php echo $invoiceId; ?>" class="text-indigo-600 hover:underline inline-flex items-center text-sm">
+            <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
+            Back to invoice
+        </a>
+    <?php else: ?>
+        <a href="<?php echo BASE_URL; ?>modules/work_orders/list" class="text-indigo-600 hover:underline inline-flex items-center text-sm">
+            <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
+            Back to work orders
+        </a>
+    <?php endif; ?>
 </div>
 
 <div class="mb-6">
     <h1 class="text-3xl font-bold text-gray-800">Create Work Order</h1>
-    <p class="text-sm text-gray-500 mt-1">
-        Complete the costing traveler for invoice <strong><?php echo htmlspecialchars($invoice['invoice_number']); ?></strong>
-        <?php if (!empty($estimation['estimation_number'])): ?>
-            linked to estimation <strong><?php echo htmlspecialchars($estimation['estimation_number']); ?></strong>
+    <p class="text-sm text-gray-500 mt-1" id="create-subtitle">
+        <?php if ($fromInvoice): ?>
+            Complete the costing traveler for invoice <strong><?php echo htmlspecialchars($invoice['invoice_number']); ?></strong>
+            <?php if (!empty($estimation['estimation_number'])): ?>
+                linked to estimation <strong><?php echo htmlspecialchars($estimation['estimation_number']); ?></strong>
+            <?php endif; ?>
+        <?php else: ?>
+            Create a work order from scratch and link it to an invoice. The order reference will default to the invoice number.
         <?php endif; ?>
     </p>
 </div>
@@ -95,28 +109,52 @@ include '../../includes/header.php';
 </div>
 
 <div class="bg-white shadow-md rounded-xl p-8">
-    <form id="workOrderForm" method="POST" action="save" novalidate>
+    <form id="workOrderForm" method="POST" action="save" novalidate data-scratch-mode="<?php echo $scratchMode ? '1' : '0'; ?>" data-unsaved-guard data-unsaved-label="the work order form" data-unsaved-discard="reload">
         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token('work_order_costing')); ?>">
-        <input type="hidden" name="invoice_id" value="<?php echo $invoiceId; ?>">
+        <input type="hidden" name="invoice_id" id="invoice_id" value="<?php echo $fromInvoice ? $invoiceId : ''; ?>">
         <input type="hidden" name="binding_type_name" id="binding_type_name" value="">
 
         <!-- Step 1 -->
         <div id="step-1" class="step-content">
             <h2 class="text-2xl font-bold text-gray-800 mb-2">Job &amp; Invoice Context</h2>
-            <p class="text-sm text-gray-500 mb-6">Confirm job details pulled from the estimation and invoice. Edit anything that changed during costing.</p>
+            <p class="text-sm text-gray-500 mb-6">
+                <?php if ($scratchMode): ?>
+                    Select the invoice to link this work order to. Job details will pre-fill from the invoice and estimation where available.
+                <?php else: ?>
+                    Confirm job details pulled from the estimation and invoice. Edit anything that changed during costing.
+                <?php endif; ?>
+            </p>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <?php if ($scratchMode): ?>
+                <div class="mb-6">
+                    <label class="block text-gray-700 font-semibold mb-2" for="invoice_selector">Link to Invoice *</label>
+                    <select id="invoice_selector" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500" required>
+                        <option value="">Select an invoice…</option>
+                        <?php foreach ($linkableInvoices as $linkable): ?>
+                            <option value="<?php echo (int) $linkable['id']; ?>">
+                                <?php echo htmlspecialchars($linkable['invoice_number'] . ' — ' . ($linkable['customer_name'] ?: 'No customer')); ?>
+                                <?php if (!empty($linkable['estimation_number'])): ?>
+                                    (<?php echo htmlspecialchars($linkable['estimation_number']); ?>)
+                                <?php endif; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p id="invoice-prefill-status" class="text-sm text-gray-500 mt-2"></p>
+                </div>
+            <?php endif; ?>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6" id="invoice-summary-panels">
                 <div class="bg-slate-50 rounded-lg p-4">
                     <div class="text-xs uppercase text-gray-500">Customer</div>
-                    <div class="font-semibold text-gray-900"><?php echo htmlspecialchars($invoice['customer_name'] ?: '—'); ?></div>
+                    <div class="font-semibold text-gray-900" id="summary-customer"><?php echo htmlspecialchars($invoice['customer_name'] ?? '—'); ?></div>
                 </div>
                 <div class="bg-slate-50 rounded-lg p-4">
                     <div class="text-xs uppercase text-gray-500">Invoice total</div>
-                    <div class="font-semibold text-gray-900">MK <?php echo number_format($prefill['total_cost'], 2); ?></div>
+                    <div class="font-semibold text-gray-900" id="summary-total">MK <?php echo number_format($prefill['total_cost'], 2); ?></div>
                 </div>
                 <div class="bg-slate-50 rounded-lg p-4">
                     <div class="text-xs uppercase text-gray-500">Outstanding balance</div>
-                    <div class="font-semibold <?php echo $prefill['balance'] > 0 ? 'text-amber-700' : 'text-green-700'; ?>">
+                    <div class="font-semibold <?php echo $prefill['balance'] > 0 ? 'text-amber-700' : 'text-green-700'; ?>" id="summary-balance">
                         MK <?php echo number_format($prefill['balance'], 2); ?>
                     </div>
                 </div>
@@ -125,37 +163,39 @@ include '../../includes/header.php';
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                     <label class="block text-gray-700 font-semibold mb-2">Ministry / Department</label>
-                    <input type="text" name="ministry_department" value="<?php echo htmlspecialchars($prefill['ministry_department']); ?>"
+                    <input type="text" name="ministry_department" id="ministry_department" value="<?php echo htmlspecialchars($prefill['ministry_department']); ?>"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500">
                 </div>
                 <div>
                     <label class="block text-gray-700 font-semibold mb-2">Order Ref / L.P.O No.</label>
-                    <input type="text" name="order_ref_lpo" value="<?php echo htmlspecialchars($prefill['order_ref_lpo']); ?>"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500">
+                    <input type="text" name="order_ref_lpo" id="order_ref_lpo" value="<?php echo htmlspecialchars($prefill['order_ref_lpo']); ?>"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                        data-auto-filled="<?php echo $prefill['order_ref_lpo'] !== '' ? '1' : '0'; ?>">
+                    <p class="text-xs text-gray-500 mt-1">Defaults to the invoice number when an invoice is selected. You can edit this if needed.</p>
                 </div>
                 <div>
                     <label class="block text-gray-700 font-semibold mb-2">Quantity</label>
-                    <input type="number" name="quantity" min="0" value="<?php echo htmlspecialchars((string) ($prefill['quantity'] ?? '')); ?>"
+                    <input type="number" name="quantity" id="quantity" min="0" value="<?php echo htmlspecialchars((string) ($prefill['quantity'] ?? '')); ?>"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500">
                 </div>
                 <div>
                     <label class="block text-gray-700 font-semibold mb-2">No. of Pages</label>
-                    <input type="number" name="pages_count" min="0" value="<?php echo htmlspecialchars((string) ($prefill['pages_count'] ?? '')); ?>"
+                    <input type="number" name="pages_count" id="pages_count" min="0" value="<?php echo htmlspecialchars((string) ($prefill['pages_count'] ?? '')); ?>"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500">
                 </div>
                 <div>
                     <label class="block text-gray-700 font-semibold mb-2">Size deep (mm/in)</label>
-                    <input type="text" name="size_deep" value="<?php echo htmlspecialchars((string) ($prefill['size_deep'] ?? '')); ?>"
+                    <input type="text" name="size_deep" id="size_deep" value="<?php echo htmlspecialchars((string) ($prefill['size_deep'] ?? '')); ?>"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500">
                 </div>
                 <div>
                     <label class="block text-gray-700 font-semibold mb-2">Size wide (mm/in)</label>
-                    <input type="text" name="size_wide" value="<?php echo htmlspecialchars((string) ($prefill['size_wide'] ?? '')); ?>"
+                    <input type="text" name="size_wide" id="size_wide" value="<?php echo htmlspecialchars((string) ($prefill['size_wide'] ?? '')); ?>"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500">
                 </div>
                 <div class="md:col-span-2">
                     <label class="block text-gray-700 font-semibold mb-2">Description of Work</label>
-                    <textarea name="job_description" rows="4"
+                    <textarea name="job_description" id="job_description" rows="4"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500 resize-y"><?php echo htmlspecialchars($prefill['job_description']); ?></textarea>
                 </div>
             </div>
@@ -245,84 +285,86 @@ include '../../includes/header.php';
 
             <?php
             $deptSections = [
-                'composing' => ['title' => 'Composing / Photosetters', 'target' => '#dept-composing'],
-                'letterpress' => ['title' => 'Letterpress / Offset', 'target' => '#dept-letterpress'],
-                'bookbinding' => ['title' => 'Bookbinding', 'target' => '#dept-bookbinding'],
-                'materials' => ['title' => 'Paper & Materials', 'target' => '#dept-materials'],
+                'composing' => ['title' => 'Composing / Photosetters', 'id' => 'dept-composing'],
+                'letterpress' => ['title' => 'Letterpress / Offset', 'id' => 'dept-letterpress'],
+                'bookbinding' => ['title' => 'Bookbinding', 'id' => 'dept-bookbinding'],
+                'materials' => ['title' => 'Paper & Materials', 'id' => 'dept-materials'],
             ];
             foreach ($deptSections as $key => $section):
             ?>
-                <div class="border border-gray-200 rounded-xl mb-4 overflow-hidden">
-                    <button type="button" class="dept-toggle w-full flex items-center justify-between px-5 py-4 bg-gray-50 hover:bg-gray-100 text-left" data-target="<?php echo $section['target']; ?>" aria-expanded="false">
+                <div class="dept-accordion-item border border-gray-200 rounded-xl mb-4 overflow-hidden">
+                    <button type="button" class="dept-toggle w-full flex items-center justify-between px-5 py-4 bg-gray-50 hover:bg-gray-100 text-left" data-target="#<?php echo $section['id']; ?>" aria-expanded="false">
                         <span class="font-semibold text-gray-800"><?php echo htmlspecialchars($section['title']); ?></span>
                         <i data-lucide="chevron-down" class="h-5 w-5 text-gray-500"></i>
                     </button>
+
+                    <?php if ($key === 'composing'): ?>
+                    <div id="dept-composing" class="hidden border-t border-gray-200 p-5 bg-white">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label class="block text-sm text-gray-600 mb-1">Compositor's Name</label><input type="text" name="compositor_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Date Received</label><input type="date" name="composing_date_received" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Type</label><input type="text" name="composing_type" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Proof to / and date</label><input type="text" name="proof_to_date" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Type area (ems wide)</label><input type="text" name="type_area_wide_ems" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Type area (ems deep)</label><input type="text" name="type_area_deep_ems" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div class="md:col-span-2"><label class="block text-sm text-gray-600 mb-1">Special Instructions</label><textarea name="composing_special_instructions" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg resize-y"></textarea></div>
+                        </div>
+                    </div>
+                    <?php elseif ($key === 'letterpress'): ?>
+                    <div id="dept-letterpress" class="hidden border-t border-gray-200 p-5 bg-white">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label class="block text-sm text-gray-600 mb-1">Machine Minder's Name</label><input type="text" name="press_minder_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Date Received</label><input type="date" name="press_date_received" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Type of Machine</label><input type="text" name="press_machine_type" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Colour of Ink</label><input type="text" name="press_ink_colour" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">No. of Overs Allowed</label><input type="text" name="press_overs_allowed" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Type of Plates</label><input type="text" name="press_plate_type" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Camera %</label><input type="text" name="press_camera_percent" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Process</label><input type="text" name="press_process" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Size</label><input type="text" name="press_size" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div class="md:col-span-2"><label class="block text-sm text-gray-600 mb-1">Special Instructions</label><textarea name="press_special_instructions" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg resize-y"></textarea></div>
+                        </div>
+                    </div>
+                    <?php elseif ($key === 'bookbinding'): ?>
+                    <div id="dept-bookbinding" class="hidden border-t border-gray-200 p-5 bg-white">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label class="block text-sm text-gray-600 mb-1">Machine Minder's Name</label><input type="text" name="binding_minder_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Date Received</label><input type="date" name="binding_date_received" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Ruling</label><input type="text" name="binding_ruling" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Perforating</label><input type="text" name="binding_perforating" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Trim — Fore-edge</label><input type="text" name="bind_trim_fore_edge" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Trim — Back</label><input type="text" name="bind_trim_back" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Trim — Head</label><input type="text" name="bind_trim_head" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div><label class="block text-sm text-gray-600 mb-1">Trim — Tail</label><input type="text" name="bind_trim_tail" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                            <div class="md:col-span-2"><label class="block text-sm text-gray-600 mb-1">Special Instructions</label><textarea name="binding_special_instructions" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg resize-y"></textarea></div>
+                        </div>
+                    </div>
+                    <?php elseif ($key === 'materials'): ?>
+                    <div id="dept-materials" class="hidden border-t border-gray-200 p-5 bg-white">
+                        <div class="flex justify-between items-center mb-4">
+                            <p class="text-sm text-gray-500">Log paper and materials used during production.</p>
+                            <button type="button" id="add-paper-row" class="text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700">Add row</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-sm">
+                                <thead>
+                                    <tr class="text-left text-xs uppercase text-gray-500">
+                                        <th class="px-2 py-2">Ledger No.</th>
+                                        <th class="px-2 py-2">Qty Sheets/Reels</th>
+                                        <th class="px-2 py-2">Cut to</th>
+                                        <th class="px-2 py-2">R.I.V. No.</th>
+                                        <th class="px-2 py-2">Date</th>
+                                        <th class="px-2 py-2">Notes</th>
+                                        <th class="px-2 py-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="paper-rows"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
             <?php endforeach; ?>
-
-            <div id="dept-composing" class="hidden border border-gray-200 rounded-xl p-5 mb-4 -mt-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label class="block text-sm text-gray-600 mb-1">Compositor's Name</label><input type="text" name="compositor_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Date Received</label><input type="date" name="composing_date_received" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Type</label><input type="text" name="composing_type" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Proof to / and date</label><input type="text" name="proof_to_date" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Type area (ems wide)</label><input type="text" name="type_area_wide_ems" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Type area (ems deep)</label><input type="text" name="type_area_deep_ems" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div class="md:col-span-2"><label class="block text-sm text-gray-600 mb-1">Special Instructions</label><textarea name="composing_special_instructions" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg resize-y"></textarea></div>
-                </div>
-            </div>
-
-            <div id="dept-letterpress" class="hidden border border-gray-200 rounded-xl p-5 mb-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label class="block text-sm text-gray-600 mb-1">Machine Minder's Name</label><input type="text" name="press_minder_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Date Received</label><input type="date" name="press_date_received" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Type of Machine</label><input type="text" name="press_machine_type" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Colour of Ink</label><input type="text" name="press_ink_colour" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">No. of Overs Allowed</label><input type="text" name="press_overs_allowed" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Type of Plates</label><input type="text" name="press_plate_type" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Camera %</label><input type="text" name="press_camera_percent" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Process</label><input type="text" name="press_process" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Size</label><input type="text" name="press_size" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div class="md:col-span-2"><label class="block text-sm text-gray-600 mb-1">Special Instructions</label><textarea name="press_special_instructions" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg resize-y"></textarea></div>
-                </div>
-            </div>
-
-            <div id="dept-bookbinding" class="hidden border border-gray-200 rounded-xl p-5 mb-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label class="block text-sm text-gray-600 mb-1">Machine Minder's Name</label><input type="text" name="binding_minder_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Date Received</label><input type="date" name="binding_date_received" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Ruling</label><input type="text" name="binding_ruling" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Perforating</label><input type="text" name="binding_perforating" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Trim — Fore-edge</label><input type="text" name="bind_trim_fore_edge" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Trim — Back</label><input type="text" name="bind_trim_back" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Trim — Head</label><input type="text" name="bind_trim_head" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div><label class="block text-sm text-gray-600 mb-1">Trim — Tail</label><input type="text" name="bind_trim_tail" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
-                    <div class="md:col-span-2"><label class="block text-sm text-gray-600 mb-1">Special Instructions</label><textarea name="binding_special_instructions" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg resize-y"></textarea></div>
-                </div>
-            </div>
-
-            <div id="dept-materials" class="hidden border border-gray-200 rounded-xl p-5 mb-4">
-                <div class="flex justify-between items-center mb-4">
-                    <p class="text-sm text-gray-500">Log paper and materials used during production.</p>
-                    <button type="button" id="add-paper-row" class="text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700">Add row</button>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm">
-                        <thead>
-                            <tr class="text-left text-xs uppercase text-gray-500">
-                                <th class="px-2 py-2">Ledger No.</th>
-                                <th class="px-2 py-2">Qty Sheets/Reels</th>
-                                <th class="px-2 py-2">Cut to</th>
-                                <th class="px-2 py-2">R.I.V. No.</th>
-                                <th class="px-2 py-2">Date</th>
-                                <th class="px-2 py-2">Notes</th>
-                                <th class="px-2 py-2"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="paper-rows"></tbody>
-                    </table>
-                </div>
-            </div>
         </div>
 
         <!-- Step 4 -->
@@ -339,9 +381,9 @@ include '../../includes/header.php';
                 </div>
                 <div class="bg-slate-50 rounded-xl p-5 space-y-3">
                     <h3 class="font-bold text-gray-800">Customer Balance</h3>
-                    <div class="flex justify-between text-sm"><span class="text-gray-500">Total cost of job</span><span class="font-semibold">MK <?php echo number_format($prefill['total_cost'], 2); ?></span></div>
-                    <div class="flex justify-between text-sm"><span class="text-gray-500">Amount paid</span><span class="font-semibold">MK <?php echo number_format($prefill['amount_paid'], 2); ?></span></div>
-                    <div class="flex justify-between text-sm border-t pt-2"><span class="text-gray-500">Balance</span><span class="font-bold <?php echo $prefill['balance'] > 0 ? 'text-amber-700' : 'text-green-700'; ?>">MK <?php echo number_format($prefill['balance'], 2); ?></span></div>
+                    <div class="flex justify-between text-sm"><span class="text-gray-500">Total cost of job</span><span class="font-semibold" id="step4-total">MK <?php echo number_format($prefill['total_cost'], 2); ?></span></div>
+                    <div class="flex justify-between text-sm"><span class="text-gray-500">Amount paid</span><span class="font-semibold" id="step4-paid">MK <?php echo number_format($prefill['amount_paid'], 2); ?></span></div>
+                    <div class="flex justify-between text-sm border-t pt-2"><span class="text-gray-500">Balance</span><span class="font-bold <?php echo $prefill['balance'] > 0 ? 'text-amber-700' : 'text-green-700'; ?>" id="step4-balance">MK <?php echo number_format($prefill['balance'], 2); ?></span></div>
                 </div>
             </div>
 

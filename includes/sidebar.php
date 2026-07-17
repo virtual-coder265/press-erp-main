@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/branding_helper.php';
 require_once __DIR__ . '/permissions_helper.php';
+require_once __DIR__ . '/reports_helper.php';
 $currentPath = $_SERVER['PHP_SELF'] ?? '';
 $role = $_SESSION['role'] ?? '';
 $userName = $_SESSION['user_name'] ?? 'User';
@@ -27,17 +28,18 @@ $sublinkClass = static function (bool $active = false): string {
 };
 
 $isDashboard = $isCurrentPath('modules/dashboard');
+$isReports = $isCurrentPath('modules/reports');
 $isEstimations = $isCurrentPath('modules/estimations');
-$isSales = $isCurrentPath('modules/sales');
-$isInvoices = $isCurrentPath('modules/invoices');
-$isMaterials = $isCurrentPath('modules/materials');
+$isSales = $isCurrentPath('modules/sales') || $isCurrentPath('modules/reports/sales');
+$isInvoices = $isCurrentPath('modules/invoices') || $isCurrentPath('modules/reports/invoices');
+$isMaterials = $isCurrentPath('modules/materials') || $isCurrentPath('modules/reports/materials');
 $isHr = $isCurrentPath('modules/hr');
 $isProductsServices = $isCurrentPath('modules/products') || $isCurrentPath('modules/services');
 $isCollaboration = $isCurrentPath('modules/collaboration');
 $isProjectsTasks = $isCurrentPath('modules/projects') || $isCurrentPath('modules/tasks') || $isCurrentPath('modules/files') || $isCollaboration;
 $isSettings = $isCurrentPath('modules/settings');
-$isDispatch = $isCurrentPath('modules/dispatch');
-$isWorkOrders = $isCurrentPath('modules/work_orders');
+$isDispatch = $isCurrentPath('modules/dispatch') || $isCurrentPath('modules/reports/dispatch');
+$isWorkOrders = $isCurrentPath('modules/work_orders') || $isCurrentPath('modules/reports/work_orders');
 $isWorkOrderWorkspace = $isCurrentPath('modules/work_orders/workspace')
     || $isCurrentPath('modules/work_orders/department_edit')
     || $isCurrentPath('modules/work_orders/handoff')
@@ -61,6 +63,7 @@ $canViewWorkOrders = permissions_can_view_work_orders();
 $canManageWorkOrders = hasPermission('manage_work_orders');
 $canManageProductionQueues = hasPermission('manage_production_queues');
 $canViewWorkOrderReports = hasPermission('view_work_order_reports');
+$canViewReports = !empty(reports_available_modules());
 $canViewHr = hasPermission('view_users') || hasPermission('view_departments') || hasPermission('view_branches') || hasPermission('view_roles');
 $canViewOperations = permissions_can_view_operations();
 ?>
@@ -97,6 +100,14 @@ $canViewOperations = permissions_can_view_operations();
                     <span class="nav-text">Dashboard</span>
                 </span>
             </a>
+            <?php if ($canViewReports): ?>
+            <a href="<?php echo BASE_URL; ?>modules/reports/index" class="<?php echo $linkClass($isReports); ?>">
+                <span class="sidebar-link-group">
+                    <span class="sidebar-icon-wrap"><i data-lucide="bar-chart-3" aria-hidden="true"></i></span>
+                    <span class="nav-text">Reports</span>
+                </span>
+            </a>
+            <?php endif; ?>
         </div>
 
         <?php if (permissions_can_view_commercial()): ?>
@@ -129,6 +140,9 @@ $canViewOperations = permissions_can_view_operations();
                     </button>
                     <div id="sales-sub" class="sidebar-submenu <?php echo $isSales ? '' : 'hidden'; ?>">
                         <a href="<?php echo BASE_URL; ?>modules/sales/index" class="<?php echo $sublinkClass($isCurrentPath('modules/sales/index')); ?>">Overview</a>
+                        <?php if ($canViewReports && reports_can_access('sales')): ?>
+                            <a href="<?php echo BASE_URL; ?>modules/reports/sales" class="<?php echo $sublinkClass($isCurrentPath('modules/reports/sales')); ?>">Reports</a>
+                        <?php endif; ?>
                         <?php if (hasPermission('manage_sales') || hasPermission('manage_invoices')): ?>
                             <a href="<?php echo BASE_URL; ?>modules/sales/record_sale" class="<?php echo $sublinkClass($isCurrentPath('modules/sales/record_sale')); ?>">Record sale</a>
                         <?php endif; ?>
@@ -147,6 +161,9 @@ $canViewOperations = permissions_can_view_operations();
                         <?php endif; ?>
                         <?php if (hasPermission('view_invoices')): ?>
                             <a href="<?php echo BASE_URL; ?>modules/invoices/list" class="<?php echo $sublinkClass($isCurrentPath('modules/invoices/list') || $isCurrentPath('modules/invoices/view')); ?>">Invoice library</a>
+                        <?php endif; ?>
+                        <?php if ($canViewReports && reports_can_access('invoices')): ?>
+                            <a href="<?php echo BASE_URL; ?>modules/reports/invoices" class="<?php echo $sublinkClass($isCurrentPath('modules/reports/invoices')); ?>">Reports</a>
                         <?php endif; ?>
                     </div>
                 <?php endif; ?>
@@ -168,6 +185,9 @@ $canViewOperations = permissions_can_view_operations();
                 <div id="materials-sub" class="sidebar-submenu <?php echo $isMaterials ? '' : 'hidden'; ?>">
                     <a href="<?php echo BASE_URL; ?>modules/materials/list" class="<?php echo $sublinkClass($isCurrentPath('modules/materials/list') || $isCurrentPath('modules/materials/create') || $isCurrentPath('modules/materials/edit')); ?>">Inventory</a>
                     <a href="<?php echo BASE_URL; ?>modules/materials/categories/list" class="<?php echo $sublinkClass($isCurrentPath('modules/materials/categories')); ?>">Categories</a>
+                    <?php if ($canViewReports && reports_can_access('materials')): ?>
+                        <a href="<?php echo BASE_URL; ?>modules/reports/materials" class="<?php echo $sublinkClass($isCurrentPath('modules/reports/materials')); ?>">Reports</a>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 
@@ -217,12 +237,19 @@ $canViewOperations = permissions_can_view_operations();
             <?php endif; ?>
 
             <?php if ($canViewDispatch): ?>
-            <a href="<?php echo BASE_URL; ?>modules/dispatch/list" class="<?php echo $linkClass($isDispatch); ?>">
+            <button type="button" data-sidebar-toggle="dispatch-sub" aria-expanded="<?php echo $isDispatch ? 'true' : 'false'; ?>" class="<?php echo $toggleClass($isDispatch); ?>">
                 <span class="sidebar-link-group">
                     <span class="sidebar-icon-wrap"><i data-lucide="truck" aria-hidden="true"></i></span>
                     <span class="nav-text">Dispatch</span>
                 </span>
-            </a>
+                <i class="text-sm nav-chevron transition-transform duration-200 <?php echo $isDispatch ? 'rotate-180' : ''; ?>" data-lucide="chevron-down" aria-hidden="true"></i>
+            </button>
+            <div id="dispatch-sub" class="sidebar-submenu <?php echo $isDispatch ? '' : 'hidden'; ?>">
+                <a href="<?php echo BASE_URL; ?>modules/dispatch/list" class="<?php echo $sublinkClass($isCurrentPath('modules/dispatch/list') || $isCurrentPath('modules/dispatch/create') || $isCurrentPath('modules/dispatch/view')); ?>">Register</a>
+                <?php if ($canViewReports && reports_can_access('dispatch')): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/reports/dispatch" class="<?php echo $sublinkClass($isCurrentPath('modules/reports/dispatch')); ?>">Reports</a>
+                <?php endif; ?>
+            </div>
             <?php endif; ?>
 
             <?php if ($canViewWorkOrders): ?>
@@ -259,8 +286,11 @@ $canViewOperations = permissions_can_view_operations();
                     </a>
                 <?php endforeach; ?>
                 <?php endif; ?>
+                <?php if ($canManageWorkOrders): ?>
+                    <a href="<?php echo BASE_URL; ?>modules/work_orders/department_users" class="<?php echo $sublinkClass($isCurrentPath('modules/work_orders/department_users')); ?>">Department notifications</a>
+                <?php endif; ?>
                 <?php if ($canViewWorkOrderReports || $canManageWorkOrders): ?>
-                    <a href="<?php echo BASE_URL; ?>modules/work_orders/reports" class="<?php echo $sublinkClass($isCurrentPath('modules/work_orders/reports')); ?>">Reports</a>
+                    <a href="<?php echo BASE_URL; ?>modules/reports/work_orders" class="<?php echo $sublinkClass($isCurrentPath('modules/reports/work_orders') || $isCurrentPath('modules/work_orders/reports')); ?>">Reports</a>
                 <?php endif; ?>
             </div>
             <?php endif; ?>

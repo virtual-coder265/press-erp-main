@@ -71,6 +71,12 @@ include '../../includes/header.php';
         <p class="text-sm text-gray-500 mt-1">Track jobs from costing through origination, production sections, and dispatch.</p>
     </div>
     <div class="list-toolbar-actions">
+        <?php if (hasPermission('manage_work_orders') || hasPermission('manage_invoices')): ?>
+            <a href="create" class="list-action-btn bg-indigo-600 text-white">
+                <i data-lucide="plus" class="sm:mr-1 inline-block h-5 w-5" aria-hidden="true"></i>
+                <span class="hidden sm:inline">Create Work Order</span>
+            </a>
+        <?php endif; ?>
         <a href="dashboard" class="list-action-btn bg-slate-700 text-white">
             <i data-lucide="layout-dashboard" class="sm:mr-1 inline-block h-5 w-5" aria-hidden="true"></i>
             <span class="hidden sm:inline">Dashboard</span>
@@ -186,6 +192,9 @@ include '../../includes/header.php';
                                 <a href="view?id=<?php echo (int) $wo['id']; ?>" class="list-icon-action bg-indigo-600 text-white" title="Open work order" aria-label="Open work order">
                                     <i data-lucide="eye" class="h-4 w-4" aria-hidden="true"></i>
                                 </a>
+                                <a href="<?php echo htmlspecialchars(work_order_pdf_href((int) $wo['id'], 'full', true)); ?>" class="list-icon-action bg-red-600 text-white" title="Export PDF" aria-label="Export PDF">
+                                    <i data-lucide="file-text" class="h-4 w-4" aria-hidden="true"></i>
+                                </a>
                                 <?php if ($canQueue): ?>
                                     <a href="workspace?department=<?php echo urlencode($deptSlug); ?>" class="list-icon-action bg-emerald-600 text-white" title="Open department queue" aria-label="Open department queue">
                                         <i data-lucide="layout-grid" class="h-4 w-4" aria-hidden="true"></i>
@@ -255,6 +264,9 @@ include '../../includes/header.php';
                 <div class="list-row-actions <?php echo $canSendOrigination ? '' : 'two-up'; ?> mt-4">
                     <a href="view?id=<?php echo (int) $wo['id']; ?>" class="list-icon-action bg-indigo-600 text-white" aria-label="Open work order">
                         <i data-lucide="eye" class="h-4 w-4" aria-hidden="true"></i>
+                    </a>
+                    <a href="<?php echo htmlspecialchars(work_order_pdf_href((int) $wo['id'], 'full', true)); ?>" class="list-icon-action bg-red-600 text-white" aria-label="Export PDF">
+                        <i data-lucide="file-text" class="h-4 w-4" aria-hidden="true"></i>
                     </a>
                     <?php if ($canQueue): ?>
                         <a href="workspace?department=<?php echo urlencode($deptSlug); ?>" class="list-icon-action bg-emerald-600 text-white" aria-label="Open department queue">

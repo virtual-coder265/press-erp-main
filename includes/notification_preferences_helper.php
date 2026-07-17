@@ -3,7 +3,7 @@
 if (!function_exists('notification_pref_types')) {
     function notification_pref_types(): array
     {
-        return ['message', 'task', 'security', 'reminder'];
+        return ['message', 'task', 'security', 'reminder', 'work_order'];
     }
 }
 

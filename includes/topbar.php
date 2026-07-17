@@ -321,7 +321,7 @@ $showDepartmentChip = $departmentName !== '' && strcasecmp($departmentName, 'Gov
     }
 
     function buildNotifItemHtml(notif) {
-        var iconMap = { message: 'mail', task: 'clipboard-list', task_assignment: 'clipboard-list', security: 'shield', reminder: 'calendar-clock' };
+        var iconMap = { message: 'mail', task: 'clipboard-list', task_assignment: 'clipboard-list', security: 'shield', reminder: 'calendar-clock', work_order: 'clipboard-list' };
         var icon = iconMap[notif.type] || 'bell';
         var timeAgo = notif.created_at || '';
         return '<a href="<?php echo BASE_URL; ?>' + (notif.link || '#') + '" class="block p-4 border-b border-gray-50 hover:bg-blue-50 transition notif-item" data-id="' + notif.id + '">'

@@ -36,17 +36,15 @@ if (!function_exists('system_branding_stored_path')) {
     }
 }
 
-if (!function_exists('system_branding_resolved_url')) {
+if (!function_exists('resolve_stored_upload_url')) {
     /**
-     * Public URL for a branding slot, falling back to bundled defaults.
-     *
-     * @param string $slot logo|favicon
+     * Turn a stored upload path into a browser-ready URL.
      */
-    function system_branding_resolved_url(string $slot): string
+    function resolve_stored_upload_url(string $storedPath, ?string $fallbackAsset = null): string
     {
-        $stored = system_branding_stored_path($slot);
+        $stored = trim($storedPath);
         if ($stored === '') {
-            return asset(system_branding_default_asset($slot));
+            return $fallbackAsset ? asset($fallbackAsset) : '';
         }
 
         if (preg_match('/^https?:\/\//i', $stored)) {
@@ -58,6 +56,20 @@ if (!function_exists('system_branding_resolved_url')) {
         }
 
         return rtrim(BASE_URL, '/') . '/' . ltrim($stored, '/');
+    }
+}
+
+if (!function_exists('system_branding_resolved_url')) {
+    /**
+     * Public URL for a branding slot, falling back to bundled defaults.
+     *
+     * @param string $slot logo|favicon
+     */
+    function system_branding_resolved_url(string $slot): string
+    {
+        $stored = system_branding_stored_path($slot);
+
+        return resolve_stored_upload_url($stored, system_branding_default_asset($slot));
     }
 }
 
@@ -153,6 +165,82 @@ if (!function_exists('system_branding_handle_post')) {
             }
 
             system_branding_store_upload($_FILES[$fileField], $slot);
+        }
+    }
+}
+
+if (!function_exists('business_logo_stored_path')) {
+    function business_logo_stored_path(): string
+    {
+        return trim((string) get_setting('business_logo', ''));
+    }
+}
+
+if (!function_exists('business_logo_resolved_url')) {
+    function business_logo_resolved_url(): string
+    {
+        return resolve_stored_upload_url(business_logo_stored_path());
+    }
+}
+
+if (!function_exists('business_logo_delete_uploaded_file')) {
+    function business_logo_delete_uploaded_file(string $relativePath): void
+    {
+        $relativePath = ltrim($relativePath, '/');
+        $prefix = 'assets/uploads/logos/';
+        if ($relativePath === '' || strpos($relativePath, $prefix) !== 0) {
+            return;
+        }
+
+        $absolute = ROOT_PATH . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+        $real = realpath($absolute);
+        $allowedRoot = realpath(ROOT_PATH . 'assets' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'logos');
+
+        if ($real === false || $allowedRoot === false) {
+            return;
+        }
+        if (strpos($real, $allowedRoot) !== 0) {
+            return;
+        }
+
+        @unlink($real);
+    }
+}
+
+if (!function_exists('business_logo_handle_post')) {
+    function business_logo_handle_post(): void
+    {
+        if (!empty($_POST['remove_business_logo'])) {
+            $previous = business_logo_stored_path();
+            update_setting('business_logo', '', 'business');
+            if ($previous !== '') {
+                business_logo_delete_uploaded_file($previous);
+            }
+            return;
+        }
+
+        if (!isset($_FILES['business_logo']) || ($_FILES['business_logo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return;
+        }
+
+        $stored = store_validated_uploaded_file(
+            $_FILES['business_logo'],
+            'business_logo',
+            ROOT_PATH . 'assets' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'logos' . DIRECTORY_SEPARATOR,
+            '/assets/uploads/logos',
+            'logo-'
+        );
+
+        $relative = ltrim($stored, '/');
+        $previous = business_logo_stored_path();
+
+        if (!update_setting('business_logo', $relative, 'business')) {
+            business_logo_delete_uploaded_file($relative);
+            throw new RuntimeException('Unable to save the business logo setting.');
+        }
+
+        if ($previous !== '' && $previous !== $relative) {
+            business_logo_delete_uploaded_file($previous);
         }
     }
 }

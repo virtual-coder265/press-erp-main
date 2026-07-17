@@ -124,6 +124,10 @@ include '../../includes/header.php';
             <a href="timeline?id=<?php echo (int) $workOrder['id']; ?>" class="wo-action-btn bg-slate-700 text-white hover:bg-slate-800">
                 <i data-lucide="history" class="h-4 w-4" aria-hidden="true"></i> Timeline
             </a>
+            <?php
+            $workOrderId = (int) $workOrder['id'];
+            include __DIR__ . '/../../includes/partials/work_order_export_menu.php';
+            ?>
         </div>
     </div>
 </div>

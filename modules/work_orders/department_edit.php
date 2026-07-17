@@ -64,12 +64,22 @@ include '../../includes/header.php';
     </a>
 </div>
 
-<div class="mb-6">
-    <h1 class="text-2xl font-bold text-gray-800"><?php echo wo_dept_field($sectionTitles[$section] ?? 'Department Section'); ?></h1>
-    <p class="text-sm text-gray-500 mt-1">
-        Work order <strong><?php echo wo_dept_field($workOrder['work_order_number']); ?></strong>
-        for <?php echo wo_dept_field($workOrder['customer_name'] ?: 'customer'); ?>
-    </p>
+<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-800"><?php echo wo_dept_field($sectionTitles[$section] ?? 'Department Section'); ?></h1>
+        <p class="text-sm text-gray-500 mt-1">
+            Work order <strong><?php echo wo_dept_field($workOrder['work_order_number']); ?></strong>
+            for <?php echo wo_dept_field($workOrder['customer_name'] ?: 'customer'); ?>
+        </p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2 shrink-0">
+        <?php
+        $workOrderId = $workOrderId;
+        $defaultSection = work_order_department_print_section($departmentSlug);
+        $buttonClass = 'inline-flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-red-700 text-white hover:bg-red-800';
+        include __DIR__ . '/../../includes/partials/work_order_export_menu.php';
+        ?>
+    </div>
 </div>
 
 <?php if (!empty($_SESSION['success'])): ?>

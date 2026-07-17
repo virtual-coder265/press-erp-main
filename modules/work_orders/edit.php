@@ -58,7 +58,7 @@ include '../../includes/header.php';
     <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6"><?php echo wo_field($_SESSION['error']); unset($_SESSION['error']); ?></div>
 <?php endif; ?>
 
-<form method="POST" action="save" class="space-y-6">
+<form id="workOrderEditForm" method="POST" action="save" class="space-y-6" data-unsaved-guard data-unsaved-label="the work order form">
     <input type="hidden" name="csrf_token" value="<?php echo wo_field(csrf_token('work_order_costing')); ?>">
     <input type="hidden" name="work_order_id" value="<?php echo $id; ?>">
     <input type="hidden" name="binding_type_name" id="binding_type_name" value="<?php echo wo_field($workOrder['binding_type_name'] ?? ''); ?>">

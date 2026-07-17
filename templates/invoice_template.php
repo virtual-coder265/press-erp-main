@@ -785,25 +785,40 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
      
     </div>
     <?php if (!empty($layout['show_payment_details'])): ?>
+        <?php
+        $vendorCode = trim((string) ($settings['vendor_code'] ?? '')) ?: '0000506232';
+        $collectionBank = trim((string) ($settings['bank_name'] ?? '')) ?: 'NBS Bank';
+        $collectionAccount = trim((string) ($settings['account_number'] ?? '')) ?: '23882768';
+        $collectionAccountName = trim((string) ($settings['collection_account_name'] ?? '')) ?: 'Government Print Treasury Fund';
+        ?>
         <div class="payment-panel">
-            <div class="pd-label">Payment Accounts</div>
-            <?php if (!empty($settings['bank_name'])): ?>
-                <div class="pd-row"><strong>Bank:</strong> <?php echo htmlspecialchars($settings['bank_name']); ?></div>
+            <div class="pd-label">Payment Instructions</div>
+            <div class="pd-row">
+                Payments processed on <strong>IFMIS</strong> should be made using Vendor Code No.
+                <strong><?php echo htmlspecialchars($vendorCode); ?></strong>.
+            </div>
+            <div class="pd-row" style="margin-top: 6px;">
+                Payments made outside IFMIS should be made by direct transfer into our collection Account No.
+                <strong><?php echo htmlspecialchars($collectionAccount); ?></strong>
+                held at <?php echo htmlspecialchars($collectionBank); ?> in the name of
+                <strong><?php echo htmlspecialchars($collectionAccountName); ?></strong>.
+            </div>
+            <?php if (!empty($settings['bank_branch']) || !empty($settings['swift_code']) || !empty($settings['iban'])): ?>
+                <div class="pd-row" style="margin-top: 8px;">
+                    <?php if (!empty($settings['bank_branch'])): ?>
+                        <span><strong>Branch:</strong> <?php echo htmlspecialchars($settings['bank_branch']); ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($settings['swift_code'])): ?>
+                        <?php if (!empty($settings['bank_branch'])): ?><span> &nbsp;|&nbsp; </span><?php endif; ?>
+                        <span><strong>SWIFT:</strong> <?php echo htmlspecialchars($settings['swift_code']); ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($settings['iban'])): ?>
+                        <?php if (!empty($settings['bank_branch']) || !empty($settings['swift_code'])): ?><span> &nbsp;|&nbsp; </span><?php endif; ?>
+                        <span><strong>IBAN:</strong> <?php echo htmlspecialchars($settings['iban']); ?></span>
+                    <?php endif; ?>
+                </div>
             <?php endif; ?>
-            <?php if (!empty($settings['account_number'])): ?>
-                <div class="pd-row"><strong>Account#:</strong> <?php echo htmlspecialchars($settings['account_number']); ?></div>
-            <?php endif; ?>
-            <?php if (!empty($settings['bank_branch'])): ?>
-                <div class="pd-row"><strong>Branch:</strong> <?php echo htmlspecialchars($settings['bank_branch']); ?></div>
-            <?php endif; ?>
-            <?php if (!empty($settings['swift_code'])): ?>
-                <div class="pd-row"><strong>SWIFT:</strong> <?php echo htmlspecialchars($settings['swift_code']); ?></div>
-            <?php endif; ?>
-            <?php if (!empty($settings['iban'])): ?>
-                <div class="pd-row"><strong>IBAN:</strong> <?php echo htmlspecialchars($settings['iban']); ?></div>
-            <?php endif; ?>
-            <div class="pd-row"><strong>Name:</strong> <?php echo htmlspecialchars($settings['business_name']); ?></div>
-            <div class="pd-row" style="margin-top: 6px; color: <?php echo $muted; ?>; font-size: 9.5px;">
+            <div class="pd-row" style="margin-top: 8px; color: <?php echo $muted; ?>; font-size: 9.5px;">
                 Please reference invoice <strong><?php echo htmlspecialchars($invoice_number); ?></strong>
                 on all payments.
             </div>

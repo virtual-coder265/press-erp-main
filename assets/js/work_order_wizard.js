@@ -43,6 +43,17 @@ $(document).ready(function () {
     }
 
     function validateStep(step) {
+        if (step === 1) {
+            const scratchMode = $('#workOrderForm').data('scratch-mode') === 1 || $('#workOrderForm').data('scratch-mode') === '1';
+            if (scratchMode) {
+                const invoiceId = $('#invoice_id').val();
+                if (!invoiceId) {
+                    alert('Please select an invoice to link this work order to.');
+                    $('#invoice_selector').focus();
+                    return false;
+                }
+            }
+        }
         if (step === 2) {
             const bindingId = $('#binding_type_id').val();
             const bindingName = $('#binding_type_name').val().trim();
@@ -72,6 +83,78 @@ $(document).ready(function () {
             updateStepUI();
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
+    });
+
+    function formatMoney(amount) {
+        const value = Number(amount) || 0;
+        return 'MK ' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function applyInvoicePrefill(data) {
+        $('#invoice_id').val(data.invoice_id || '');
+        $('#summary-customer').text(data.customer_name || '—');
+        $('#summary-total').text(formatMoney(data.total_cost));
+        $('#summary-balance').text(formatMoney(data.balance));
+        $('#step4-total').text(formatMoney(data.total_cost));
+        $('#step4-paid').text(formatMoney(data.amount_paid));
+        $('#step4-balance').text(formatMoney(data.balance));
+
+        $('#ministry_department').val(data.ministry_department || '');
+        $('#quantity').val(data.quantity ?? '');
+        $('#pages_count').val(data.pages_count ?? '');
+        $('#size_deep').val(data.size_deep || '');
+        $('#size_wide').val(data.size_wide || '');
+        $('#job_description').val(data.job_description || '');
+
+        const orderRef = $('#order_ref_lpo');
+        const userEdited = orderRef.data('user-edited') === 1 || orderRef.data('user-edited') === '1';
+        const autoFilled = orderRef.data('auto-filled') === 1 || orderRef.data('auto-filled') === '1';
+        if (!userEdited || autoFilled) {
+            orderRef.val(data.order_ref_lpo || data.invoice_number || '');
+            orderRef.data('auto-filled', '1');
+            orderRef.data('user-edited', '0');
+        }
+
+        let subtitle = 'Complete the costing traveler for invoice <strong>' + (data.invoice_number || '') + '</strong>';
+        if (data.estimation_number) {
+            subtitle += ' linked to estimation <strong>' + data.estimation_number + '</strong>';
+        }
+        $('#create-subtitle').html(subtitle);
+        var workOrderForm = document.getElementById('workOrderForm');
+        if (workOrderForm && window.FormUnsavedGuard) {
+            window.FormUnsavedGuard.resetBaseline(workOrderForm);
+        }
+    }
+
+    $('#order_ref_lpo').on('input', function () {
+        $(this).data('user-edited', '1').data('auto-filled', '0');
+    });
+
+    $('#invoice_selector').on('change', function () {
+        const invoiceId = $(this).val();
+        const status = $('#invoice-prefill-status');
+        if (!invoiceId) {
+            $('#invoice_id').val('');
+            status.text('');
+            return;
+        }
+
+        status.text('Loading invoice details…');
+        $.getJSON('invoice_prefill.php', { invoice_id: invoiceId })
+            .done(function (response) {
+                if (!response.success) {
+                    status.text(response.message || 'Could not load invoice.');
+                    if (response.existing_work_order_id) {
+                        window.location.href = 'view?id=' + response.existing_work_order_id;
+                    }
+                    return;
+                }
+                applyInvoicePrefill(response.data);
+                status.text('Invoice linked. Order reference set to ' + (response.data.invoice_number || 'invoice number') + '.');
+            })
+            .fail(function () {
+                status.text('Could not load invoice details. Please try again.');
+            });
     });
 
     $('#binding_type_id').on('change', function () {
@@ -144,4 +227,10 @@ $(document).ready(function () {
     });
 
     updateStepUI();
+    setTimeout(function () {
+        var workOrderForm = document.getElementById('workOrderForm');
+        if (workOrderForm && window.FormUnsavedGuard) {
+            window.FormUnsavedGuard.resetBaseline(workOrderForm);
+        }
+    }, 0);
 });

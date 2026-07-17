@@ -111,6 +111,11 @@
 
     <script src="<?php echo asset('js/app-shell.js'); ?>"></script>
     <?php
+    $formGuardJsPath = ROOT_PATH . 'assets/js/form-unsaved-guard.js';
+    $formGuardJsV = file_exists($formGuardJsPath) ? (string) filemtime($formGuardJsPath) : (string) time();
+    ?>
+    <script src="<?php echo asset('js/form-unsaved-guard.js') . '?v=' . rawurlencode($formGuardJsV); ?>"></script>
+    <?php
     $pressErpSkipGlobalDateTimePicker = !empty($pressErpSkipGlobalDateTimePicker);
     ?>
     <?php $nativeDtJsPath = ROOT_PATH . 'assets/js/native-date-range.js'; ?>

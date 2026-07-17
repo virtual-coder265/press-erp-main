@@ -995,7 +995,7 @@ if (!function_exists('installer_ensure_notifications_schema')) {
             $changes[] = 'notification_settings.' . $columnName;
         }
 
-        foreach (['message', 'task', 'security', 'reminder'] as $type) {
+        foreach (['message', 'task', 'security', 'reminder', 'work_order'] as $type) {
             $stmt = $pdo->prepare("
                 INSERT IGNORE INTO `notification_settings`
                     (`user_id`, `notification_type`, `email_enabled`, `in_app_enabled`, `push_enabled`, `sms_enabled`, `whatsapp_enabled`)

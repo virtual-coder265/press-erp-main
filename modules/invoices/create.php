@@ -120,7 +120,7 @@ include '../../includes/header.php';
 <?php endif; ?>
 
 <div class="bg-white shadow-md rounded-xl p-8">
-    <form id="invoiceForm" method="POST" action="save">
+    <form id="invoiceForm" method="POST" action="save" data-unsaved-guard data-unsaved-label="the invoice form" data-unsaved-discard="reload">
         <input type="hidden" name="estimation_id" value="<?php echo (int) $est_id; ?>">
         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token('invoice_create')); ?>">
 

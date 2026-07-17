@@ -147,7 +147,7 @@ include '../../includes/header.php';
 
 <!-- Form (Content from create.php, but with draft data loading) -->
 <div class="bg-white shadow-md rounded-xl p-8">
-    <form id="estimationForm" method="POST" action="save">
+    <form id="estimationForm" method="POST" action="save" data-unsaved-guard data-unsaved-label="the estimation form" data-unsaved-discard="reload">
         <!-- Hidden field for draft tracking -->
         <input type="hidden" name="est_id" id="est_id" value="<?php echo $est_id; ?>">
         <input type="hidden" name="is_draft_edit" value="1">

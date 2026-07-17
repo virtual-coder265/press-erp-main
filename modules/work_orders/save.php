@@ -33,7 +33,7 @@ try {
     }
 
     if ($invoiceId <= 0) {
-        throw new RuntimeException('Invalid invoice reference.');
+        throw new RuntimeException('Please select an invoice to link this work order to.');
     }
 
     $costingFields = work_order_parse_costing_fields($_POST);
@@ -61,5 +61,8 @@ try {
     if ($workOrderId > 0) {
         redirect('modules/work_orders/edit?id=' . $workOrderId);
     }
-    redirect('modules/work_orders/create?invoice_id=' . $invoiceId);
+    if ($invoiceId > 0) {
+        redirect('modules/work_orders/create?invoice_id=' . $invoiceId);
+    }
+    redirect('modules/work_orders/create');
 }

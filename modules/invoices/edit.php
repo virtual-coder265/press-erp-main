@@ -193,7 +193,7 @@ include '../../includes/header.php';
     </div>
 <?php endif; ?>
 
-<form method="POST" action="edit?id=<?php echo (int) $invoice['id']; ?>" class="bg-white shadow-md rounded-xl p-8 space-y-8" <?php echo $readOnly ? 'onsubmit="return false;"' : ''; ?>>
+<form id="invoiceEditForm" method="POST" action="edit?id=<?php echo (int) $invoice['id']; ?>" class="bg-white shadow-md rounded-xl p-8 space-y-8" <?php echo $readOnly ? 'onsubmit="return false;"' : 'data-unsaved-guard data-unsaved-label="the invoice form"'; ?>>
     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token('invoice_edit')); ?>">
     <input type="hidden" name="id" value="<?php echo (int) $invoice['id']; ?>">
 
@@ -359,6 +359,12 @@ include '../../includes/header.php';
 
     recalc();
     if (typeof window.refreshAppShellIcons === 'function') window.refreshAppShellIcons();
+
+    document.addEventListener('form-unsaved-discarded', function (event) {
+        if (event.detail && event.detail.action === 'restore') {
+            recalc();
+        }
+    });
 </script>
 
 <?php include '../../includes/footer.php'; ?>

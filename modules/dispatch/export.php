@@ -74,13 +74,22 @@ switch ($format) {
         ExportManager::exportToPDF($dispatches, $columns, $title, $filename, [
             'orientation' => 'L',
             'pageSize' => 'A4',
-            'fontSize' => 8
+            'fontSize' => 8,
+            'branded' => true,
+            'periodLabel' => (!empty($date_from) || !empty($date_to))
+                ? trim(($date_from ? date('M d, Y', strtotime($date_from)) : '') . ' – ' . ($date_to ? date('M d, Y', strtotime($date_to)) : ''))
+                : 'All time',
         ]);
         break;
         
     case 'excel':
     case 'xlsx':
-        ExportManager::exportToExcel($dispatches, $columns, $title, $filename);
+        ExportManager::exportToExcel($dispatches, $columns, $title, $filename, [
+            'branded' => true,
+            'periodLabel' => (!empty($date_from) || !empty($date_to))
+                ? trim(($date_from ? date('M d, Y', strtotime($date_from)) : '') . ' – ' . ($date_to ? date('M d, Y', strtotime($date_to)) : ''))
+                : 'All time',
+        ]);
         break;
         
     case 'csv':

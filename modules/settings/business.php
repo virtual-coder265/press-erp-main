@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/settings_helper.php';
 require_once __DIR__ . '/../../includes/billing_layout_helper.php';
 require_once __DIR__ . '/../../includes/upload_helper.php';
+require_once __DIR__ . '/../../includes/branding_helper.php';
 
 if (($_SESSION['role'] ?? '') !== 'System Admin' && !hasPermission('manage_settings')) {
     die('Access Denied.');
@@ -15,17 +16,7 @@ $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
-        if (isset($_FILES['business_logo']) && $_FILES['business_logo']['error'] === UPLOAD_ERR_OK) {
-            $logoPath = store_validated_uploaded_file(
-                $_FILES['business_logo'],
-                'business_logo',
-                __DIR__ . '/../../assets/uploads/logos/',
-                '/assets/uploads/logos',
-                'logo-'
-            );
-
-            update_setting('business_logo', $logoPath, 'business');
-        }
+        business_logo_handle_post();
 
         save_application_settings([
             'business_name' => $_POST['business_name'] ?? '',
@@ -42,8 +33,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'signature1_title' => $_POST['signature1_title'] ?? 'Authorized Signature',
             'signature2_title' => $_POST['signature2_title'] ?? 'Customer Signature',
             'signature3_title' => $_POST['signature3_title'] ?? 'Date',
+            'vendor_code' => $_POST['vendor_code'] ?? '',
             'bank_name' => $_POST['bank_name'] ?? '',
             'account_number' => $_POST['account_number'] ?? '',
+            'collection_account_name' => $_POST['collection_account_name'] ?? '',
             'bank_branch' => $_POST['bank_branch'] ?? '',
             'swift_code' => $_POST['swift_code'] ?? '',
             'iban' => $_POST['iban'] ?? '',
@@ -65,6 +58,8 @@ $flatSettings = array_merge(
 );
 
 $billingLayout = get_billing_layout_config();
+$businessLogoUrl = business_logo_resolved_url();
+$hasCustomBusinessLogo = business_logo_stored_path() !== '';
 $variantMeta = [
     'executive' => 'Executive',
     'professional' => 'Professional',
@@ -97,26 +92,21 @@ include '../../includes/header.php';
             <h2 class="text-lg font-semibold mb-4 text-gray-800 border-b pb-2">Organisation Identity</h2>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Business Logo</label>
-                    <div class="flex items-center gap-4">
-                        <span class="inline-flex h-24 w-24 rounded-2xl overflow-hidden bg-gray-100 border border-gray-200 items-center justify-center">
-                            <?php if (!empty($flatSettings['business_logo'])): ?>
-                                <img src="<?php echo htmlspecialchars($flatSettings['business_logo']); ?>" alt="Business Logo" class="h-full w-full object-contain">
-                            <?php else: ?>
-                                <i class="material-icons text-4xl text-gray-300">apartment</i>
-                            <?php endif; ?>
-                        </span>
-                        <label class="inline-flex">
-                            <span class="px-4 py-2 bg-white text-sm font-medium text-gray-700 border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 cursor-pointer">
-                                Upload Logo
-                                <input type="file" name="business_logo" class="hidden" accept=".jpg,.jpeg,.png,.gif,.webp">
-                            </span>
-                        </label>
-                    </div>
+                <div class="lg:col-span-3">
+                    <?php
+                    $zoneId = 'business_logo_zone';
+                    $inputName = 'business_logo';
+                    $removeFlagName = 'remove_business_logo';
+                    $label = 'Business Logo';
+                    $hint = 'Used on invoices, quotes, receipts, and other PDF documents. Preview updates immediately; click Save Business Settings to persist changes.';
+                    $currentUrl = $businessLogoUrl;
+                    $hasCustom = $hasCustomBusinessLogo;
+                    $previewVariant = 'logo';
+                    include __DIR__ . '/../../includes/partials/branding_upload_zone.php';
+                    ?>
                 </div>
 
-                <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label for="business_name" class="block text-sm font-medium text-gray-700">Business Name</label>
                         <input type="text" id="business_name" name="business_name" value="<?php echo htmlspecialchars((string) ($flatSettings['business_name'] ?? '')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2">
@@ -206,31 +196,42 @@ include '../../includes/header.php';
         </div>
 
         <div class="bg-white shadow-md rounded-xl p-6">
-            <h2 class="text-lg font-semibold mb-4 text-gray-800 border-b pb-2">Banking Details</h2>
+            <h2 class="text-lg font-semibold mb-4 text-gray-800 border-b pb-2">Banking &amp; Payment Instructions</h2>
+            <p class="text-sm text-gray-500 mb-4">These details appear on invoice PDFs when the <strong>Payment / bank details</strong> section is enabled in billing customization.</p>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label for="bank_name" class="block text-sm font-medium text-gray-700">Bank Name</label>
-                    <input type="text" id="bank_name" name="bank_name" value="<?php echo htmlspecialchars((string) ($flatSettings['bank_name'] ?? '')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2">
+                    <label for="vendor_code" class="block text-sm font-medium text-gray-700">IFMIS Vendor Code</label>
+                    <input type="text" id="vendor_code" name="vendor_code" value="<?php echo htmlspecialchars((string) ($flatSettings['vendor_code'] ?? '0000506232')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="0000506232">
                 </div>
 
                 <div>
-                    <label for="account_number" class="block text-sm font-medium text-gray-700">Account Number</label>
-                    <input type="text" id="account_number" name="account_number" value="<?php echo htmlspecialchars((string) ($flatSettings['account_number'] ?? '')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2">
+                    <label for="bank_name" class="block text-sm font-medium text-gray-700">Collection Bank</label>
+                    <input type="text" id="bank_name" name="bank_name" value="<?php echo htmlspecialchars((string) ($flatSettings['bank_name'] ?? 'NBS Bank')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2">
                 </div>
 
                 <div>
-                    <label for="bank_branch" class="block text-sm font-medium text-gray-700">Branch</label>
+                    <label for="account_number" class="block text-sm font-medium text-gray-700">Collection Account Number</label>
+                    <input type="text" id="account_number" name="account_number" value="<?php echo htmlspecialchars((string) ($flatSettings['account_number'] ?? '23882768')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2">
+                </div>
+
+                <div>
+                    <label for="collection_account_name" class="block text-sm font-medium text-gray-700">Collection Account Name</label>
+                    <input type="text" id="collection_account_name" name="collection_account_name" value="<?php echo htmlspecialchars((string) ($flatSettings['collection_account_name'] ?? 'Government Print Treasury Fund')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2">
+                </div>
+
+                <div>
+                    <label for="bank_branch" class="block text-sm font-medium text-gray-700">Branch <span class="text-gray-400 font-normal">(optional)</span></label>
                     <input type="text" id="bank_branch" name="bank_branch" value="<?php echo htmlspecialchars((string) ($flatSettings['bank_branch'] ?? '')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2">
                 </div>
 
                 <div>
-                    <label for="swift_code" class="block text-sm font-medium text-gray-700">SWIFT Code</label>
+                    <label for="swift_code" class="block text-sm font-medium text-gray-700">SWIFT Code <span class="text-gray-400 font-normal">(optional)</span></label>
                     <input type="text" id="swift_code" name="swift_code" value="<?php echo htmlspecialchars((string) ($flatSettings['swift_code'] ?? '')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2">
                 </div>
 
                 <div class="md:col-span-2">
-                    <label for="iban" class="block text-sm font-medium text-gray-700">IBAN</label>
+                    <label for="iban" class="block text-sm font-medium text-gray-700">IBAN <span class="text-gray-400 font-normal">(optional)</span></label>
                     <input type="text" id="iban" name="iban" value="<?php echo htmlspecialchars((string) ($flatSettings['iban'] ?? '')); ?>" class="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2">
                 </div>
             </div>
@@ -338,5 +339,43 @@ include '../../includes/header.php';
         </div>
     </form>
 </div>
+
+<style>
+    .branding-upload-preview {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.75rem;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .branding-upload-preview--logo {
+        width: 10rem;
+        height: 6rem;
+    }
+
+    .branding-upload-preview--icon {
+        width: 5.5rem;
+        height: 5.5rem;
+    }
+
+    .branding-upload-preview-img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+
+    .branding-upload-preview-empty {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #94a3b8;
+    }
+</style>
+<script src="<?php echo asset('js/logo-upload-zone.js'); ?>"></script>
 
 <?php include '../../includes/footer.php'; ?>

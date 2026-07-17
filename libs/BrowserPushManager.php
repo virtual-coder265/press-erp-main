@@ -859,6 +859,7 @@ class BrowserPushManager
             'task' => 'task.svg',
             'reminder' => 'reminder.svg',
             'security' => 'security.svg',
+            'work_order' => 'work_order.svg',
         ];
 
         return BASE_URL . 'assets/images/notification-icons/' . ($map[$type] ?? 'notice.svg');
