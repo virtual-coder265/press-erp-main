@@ -33,7 +33,7 @@ class BrowserPushManager
             return $this->nodeAvailable;
         }
 
-        if (!file_exists(ROOT_PATH . 'cli-tools' . DIRECTORY_SEPARATOR . 'web-push.mjs')) {
+        if ($this->resolveWebPushScriptPath() === null) {
             $this->nodeAvailable = false;
             self::$cachedNodeSupport = false;
             $this->writeSupportCache(false);
@@ -60,12 +60,8 @@ class BrowserPushManager
         return $this->nodeAvailable;
     }
 
-    public function isEnabled(): bool
+    public function isClientEnabled(): bool
     {
-        if (!$this->isSupported()) {
-            return false;
-        }
-
         if (!$this->ensureSchema()) {
             return false;
         }
@@ -77,13 +73,24 @@ class BrowserPushManager
         return $this->getConfig() !== null;
     }
 
+    public function isEnabled(): bool
+    {
+        return $this->isClientEnabled();
+    }
+
+    public function canDeliver(): bool
+    {
+        return $this->isClientEnabled() && $this->isSupported();
+    }
+
     public function getPublicConfig(): array
     {
         $config = $this->getConfig();
 
         return [
-            'enabled' => $this->isEnabled(),
+            'enabled' => $this->isClientEnabled(),
             'supported' => $this->isSupported(),
+            'deliveryAvailable' => $this->canDeliver(),
             'publicKey' => $config['publicKey'] ?? '',
             'appName' => $this->getBrandName(),
             'baseUrl' => BASE_URL,
@@ -99,8 +106,9 @@ class BrowserPushManager
     public function getStatus(int $userId): array
     {
         return [
-            'enabled' => $this->isEnabled(),
+            'enabled' => $this->isClientEnabled(),
             'supported' => $this->isSupported(),
+            'delivery_available' => $this->canDeliver(),
             'has_active_subscription' => $this->hasActiveSubscriptions($userId),
             'subscription_count' => $this->countActiveSubscriptions($userId),
             'app_name' => $this->getBrandName(),
@@ -113,7 +121,7 @@ class BrowserPushManager
             throw new InvalidArgumentException('A valid user is required.');
         }
 
-        if (!$this->isEnabled()) {
+        if (!$this->isClientEnabled()) {
             return [
                 'success' => false,
                 'message' => 'Browser push is disabled.',
@@ -215,7 +223,7 @@ class BrowserPushManager
         $relatedId = null,
         array $context = []
     ): array {
-        if ($userId <= 0 || !$this->isEnabled()) {
+        if ($userId <= 0 || !$this->canDeliver()) {
             return [
                 'success' => false,
                 'sent' => 0,
@@ -229,7 +237,7 @@ class BrowserPushManager
 
     public function sendReminderAlarm(int $userId, array $alarm): array
     {
-        if ($userId <= 0 || !$this->isEnabled()) {
+        if ($userId <= 0 || !$this->canDeliver()) {
             return [
                 'success' => false,
                 'sent' => 0,
@@ -277,7 +285,7 @@ class BrowserPushManager
 
     public function sendTestNotification(int $userId): array
     {
-        if ($userId <= 0 || !$this->isEnabled()) {
+        if ($userId <= 0 || !$this->canDeliver()) {
             return [
                 'success' => false,
                 'sent' => 0,
@@ -483,10 +491,6 @@ class BrowserPushManager
             return $this->config;
         }
 
-        if (!$this->isSupported()) {
-            return null;
-        }
-
         $publicKey = trim((string) get_setting('web_push_vapid_public_key', ''));
         $privateKey = trim((string) get_setting('web_push_vapid_private_key', ''));
         $subject = trim((string) get_setting('web_push_vapid_subject', ''));
@@ -672,10 +676,26 @@ class BrowserPushManager
             . 'browser-push-support.json';
     }
 
+    private function resolveWebPushScriptPath(): ?string
+    {
+        $candidates = [
+            ROOT_PATH . 'scripts' . DIRECTORY_SEPARATOR . 'web-push.mjs',
+            ROOT_PATH . 'cli-tools' . DIRECTORY_SEPARATOR . 'web-push.mjs',
+        ];
+
+        foreach ($candidates as $path) {
+            if (is_file($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
     private function runNodeScript(string $command, array $payload = []): array
     {
-        $scriptPath = ROOT_PATH . 'cli-tools' . DIRECTORY_SEPARATOR . 'web-push.mjs';
-        if (!file_exists($scriptPath)) {
+        $scriptPath = $this->resolveWebPushScriptPath();
+        if ($scriptPath === null) {
             throw new RuntimeException('Web push helper script is missing.');
         }
 
@@ -724,16 +744,64 @@ class BrowserPushManager
 
     private function bootstrapVapidConfiguration(): void
     {
+        $keys = null;
+
         try {
             $keys = $this->runNodeScript('generate-keys');
-            save_application_settings([
-                'web_push_vapid_public_key' => $keys['publicKey'],
-                'web_push_vapid_private_key' => $keys['privateKey'],
-                'web_push_vapid_subject' => $this->defaultVapidSubject(),
-            ]);
         } catch (Throwable $exception) {
-            error_log('Unable to bootstrap web push configuration: ' . $exception->getMessage());
+            error_log('Node web push key bootstrap failed: ' . $exception->getMessage());
+            $keys = $this->generateVapidKeysPhp();
         }
+
+        if (!is_array($keys) || empty($keys['publicKey']) || empty($keys['privateKey'])) {
+            error_log('Unable to bootstrap web push VAPID keys.');
+            return;
+        }
+
+        save_application_settings([
+            'web_push_vapid_public_key' => $keys['publicKey'],
+            'web_push_vapid_private_key' => $keys['privateKey'],
+            'web_push_vapid_subject' => $this->defaultVapidSubject(),
+        ]);
+    }
+
+    private function generateVapidKeysPhp(): ?array
+    {
+        if (!function_exists('openssl_pkey_new')) {
+            return null;
+        }
+
+        $key = openssl_pkey_new([
+            'private_key_type' => OPENSSL_KEYTYPE_EC,
+            'curve_name' => 'prime256v1',
+        ]);
+
+        if ($key === false) {
+            return null;
+        }
+
+        $details = openssl_pkey_get_details($key);
+        if (!is_array($details) || empty($details['ec'])) {
+            return null;
+        }
+
+        $x = str_pad((string) ($details['ec']['x'] ?? ''), 32, "\0", STR_PAD_LEFT);
+        $y = str_pad((string) ($details['ec']['y'] ?? ''), 32, "\0", STR_PAD_LEFT);
+        $d = str_pad((string) ($details['ec']['d'] ?? ''), 32, "\0", STR_PAD_LEFT);
+
+        if (strlen($x) !== 32 || strlen($y) !== 32 || strlen($d) !== 32) {
+            return null;
+        }
+
+        return [
+            'publicKey' => $this->base64UrlEncode("\x04" . $x . $y),
+            'privateKey' => $this->base64UrlEncode($d),
+        ];
+    }
+
+    private function base64UrlEncode(string $value): string
+    {
+        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
     }
 
     private function buildEventPayload(

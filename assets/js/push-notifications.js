@@ -61,8 +61,10 @@
             elements.status.textContent = 'HTTPS Required';
             elements.detail.textContent = 'Browser push works only on HTTPS sites, except localhost during development.';
         } else if (!config.enabled) {
-            elements.status.textContent = 'Disabled by Admin';
-            elements.detail.textContent = 'System-wide browser push delivery is currently turned off.';
+            elements.status.textContent = 'Unavailable';
+            elements.detail.textContent = config.publicKey
+                ? 'Browser push is turned off by the system administrator.'
+                : 'Browser push is not configured on the server yet.';
         } else if (permission === 'denied') {
             elements.status.textContent = 'Blocked';
             elements.detail.textContent = 'Browser notifications are blocked for this site. Re-enable them in your browser settings.';
@@ -159,7 +161,11 @@
 
     async function syncSubscription(requestPermission) {
         if (!config.enabled) {
-            throw new Error('Browser push is disabled by the system administrator.');
+            if (!config.publicKey) {
+                throw new Error('Browser push is not configured on the server yet. Contact your administrator.');
+            }
+
+            throw new Error('Browser push is turned off by the system administrator.');
         }
 
         if (!config.publicKey) {

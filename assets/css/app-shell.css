@@ -2378,6 +2378,12 @@ textarea:focus {
     }
 }
 
+@media (min-width: 1024px) {
+    .wo-dashboard-kpi-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
 @media (min-width: 1280px) {
     .wo-dashboard-kpi-grid {
         grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -2498,6 +2504,18 @@ textarea:focus {
     padding-bottom: 0.25rem;
     margin-bottom: 1.5rem;
     scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 1024px) {
+    .wo-dashboard-quick-actions {
+        overflow-x: visible;
+    }
+
+    .wo-dashboard-quick-action {
+        flex: 1 1 0;
+        min-width: 0;
+    }
 }
 
 .wo-dashboard-quick-action {
@@ -2576,16 +2594,20 @@ textarea:focus {
     display: flex;
     align-items: stretch;
     gap: 0.5rem;
+    width: 100%;
     overflow-x: auto;
     padding-bottom: 0.35rem;
     scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
 }
 
 .wo-dashboard-pipeline-step {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 0.45rem;
+    flex: 0 0 auto;
     min-width: 7.5rem;
     padding: 0.85rem 0.65rem;
     border-radius: 0.9rem;
@@ -2594,6 +2616,47 @@ textarea:focus {
     text-decoration: none;
     color: inherit;
     transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+@media (min-width: 1024px) {
+    .wo-dashboard-pipeline-scroll {
+        overflow-x: visible;
+        gap: 0.65rem;
+    }
+
+    .wo-dashboard-pipeline-step {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 1rem 0.75rem;
+    }
+
+    .wo-dashboard-pipeline-step-count {
+        font-size: 1.35rem;
+    }
+}
+
+@media (max-width: 639px) {
+    .wo-dashboard-pipeline-scroll {
+        gap: 0.4rem;
+    }
+
+    .wo-dashboard-pipeline-step {
+        min-width: 6.75rem;
+        padding: 0.75rem 0.5rem;
+    }
+
+    .wo-dashboard-pipeline-step-label {
+        font-size: 0.72rem;
+    }
+
+    .wo-dashboard-pipeline-step-count {
+        font-size: 1.05rem;
+    }
+
+    .wo-dashboard-pipeline-arrow svg.lucide {
+        width: 0.85rem;
+        height: 0.85rem;
+    }
 }
 
 .wo-dashboard-pipeline-step:hover {
@@ -2622,6 +2685,8 @@ textarea:focus {
     font-weight: 700;
     color: #334155;
     text-align: center;
+    line-height: 1.25;
+    max-width: 100%;
 }
 
 .wo-dashboard-pipeline-step-count {

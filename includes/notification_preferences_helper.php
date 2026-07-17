@@ -79,7 +79,7 @@ if (!function_exists('notification_prefs_push_required')) {
                 require_once __DIR__ . '/../libs/BrowserPushManager.php';
             }
             $manager = new BrowserPushManager($pdo);
-            return $manager->isEnabled();
+            return $manager->isClientEnabled();
         } catch (Throwable $exception) {
             return false;
         }

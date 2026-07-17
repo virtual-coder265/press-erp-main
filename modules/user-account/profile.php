@@ -149,8 +149,8 @@ $browserPushManager = new BrowserPushManager($pdo);
 $pushStatus = $browserPushManager->getStatus($user_id);
 $needsNotificationSetup = $is_force_update && notification_prefs_user_needs_setup($pdo, $user_id);
 $pushSystemEnabled = notification_prefs_push_required($pdo);
-$pushBrowserSupported = !empty($pushStatus['supported']);
-$pushPushAvailable = $pushSystemEnabled && $pushBrowserSupported && !empty($pushStatus['enabled']);
+$pushClientEnabled = !empty($pushStatus['enabled']);
+$pushPushAvailable = $pushSystemEnabled && $pushClientEnabled;
 $hasValidPhone = (!empty($user['phone']) && preg_match('/^\+265(99|88|98|89)\d{5,}$/', (string) $user['phone']))
     || (!empty($user['whatsapp_phone']) && preg_match('/^\+265(99|88|98|89)\d{5,}$/', (string) $user['whatsapp_phone']));
 $notificationOnlySetup = $needsNotificationSetup && $hasValidPhone;
@@ -360,10 +360,10 @@ $notificationOnlySetup = $needsNotificationSetup && $hasValidPhone;
                         </p>
                         <?php else: ?>
                         <p class="text-xs text-gray-500">
-                            <?php if (!$pushBrowserSupported): ?>
-                                Browser push delivery is not configured on the server yet (Node.js web-push helper or VAPID keys missing). You can still complete setup with email and phone alerts.
-                            <?php elseif (!$pushSystemEnabled): ?>
+                            <?php if (!$pushSystemEnabled): ?>
                                 Browser push is disabled system-wide. Email and phone channels will still be enabled.
+                            <?php elseif (!$pushClientEnabled): ?>
+                                Browser push is not configured on the server yet (VAPID keys or push helper missing). You can still complete setup with email and phone alerts.
                             <?php else: ?>
                                 Browser push is unavailable in this browser or environment. Email and phone channels will still be enabled.
                             <?php endif; ?>
