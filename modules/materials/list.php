@@ -87,7 +87,7 @@ $categories = $pdo->query("SELECT * FROM material_categories ORDER BY name")->fe
                     <input type="hidden" name="description" value="<?php echo htmlspecialchars($mat['description']); ?>">
                     
                     <div class="relative group">
-                        <label class="block text-xs font-bold text-blue-600 mb-1">CURRENT RATE (MKW)</label>
+                        <label class="block text-xs font-bold text-blue-600 mb-1">CURRENT RATE (MK)</label>
                         <div class="flex gap-2">
                             <input type="number" step="0.01" name="rate" value="<?php echo $mat['current_rate']; ?>" 
                                    class="w-full px-3 py-2 bg-blue-50/50 border border-blue-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-bold text-gray-900">

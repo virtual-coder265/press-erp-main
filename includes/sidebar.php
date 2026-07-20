@@ -30,6 +30,19 @@ $sublinkClass = static function (bool $active = false): string {
 $isDashboard = $isCurrentPath('modules/dashboard');
 $isReports = $isCurrentPath('modules/reports');
 $isEstimations = $isCurrentPath('modules/estimations');
+$estimationListView = '';
+if (strpos($currentPath, 'modules/estimations/list') !== false) {
+    $viewParam = strtolower(trim((string) ($_GET['view'] ?? 'drafts')));
+    $estimationListView = in_array($viewParam, ['drafts', 'completed', 'invoiced'], true) ? $viewParam : 'drafts';
+}
+$isEstimationDrafts = $isEstimations && (
+    $isCurrentPath('modules/estimations/edit_draft')
+    || $isCurrentPath('modules/estimations/create')
+    || ($isCurrentPath('modules/estimations/list') && $estimationListView === 'drafts')
+);
+$isEstimationCompleted = $isEstimations && $isCurrentPath('modules/estimations/list') && $estimationListView === 'completed';
+$isEstimationInvoiced = $isEstimations && $isCurrentPath('modules/estimations/list') && $estimationListView === 'invoiced';
+$isEstimationStatus = $isCurrentPath('modules/estimations/status_dashboard');
 $isSales = $isCurrentPath('modules/sales') || $isCurrentPath('modules/reports/sales');
 $isInvoices = $isCurrentPath('modules/invoices') || $isCurrentPath('modules/reports/invoices');
 $isMaterials = $isCurrentPath('modules/materials') || $isCurrentPath('modules/reports/materials');
@@ -126,7 +139,10 @@ $canViewOperations = permissions_can_view_operations();
                         <?php if (hasPermission('manage_estimations')): ?>
                             <a href="<?php echo BASE_URL; ?>modules/estimations/create" class="<?php echo $sublinkClass($isCurrentPath('modules/estimations/create')); ?>">New estimation</a>
                         <?php endif; ?>
-                        <a href="<?php echo BASE_URL; ?>modules/estimations/list" class="<?php echo $sublinkClass($isCurrentPath('modules/estimations/list') || $isCurrentPath('modules/estimations/view') || $isCurrentPath('modules/estimations/status_dashboard')); ?>">All estimations</a>
+                        <a href="<?php echo BASE_URL; ?>modules/estimations/list?view=drafts" class="<?php echo $sublinkClass($isEstimationDrafts); ?>">Draft</a>
+                        <a href="<?php echo BASE_URL; ?>modules/estimations/list?view=completed" class="<?php echo $sublinkClass($isEstimationCompleted); ?>">Completed</a>
+                        <a href="<?php echo BASE_URL; ?>modules/estimations/list?view=invoiced" class="<?php echo $sublinkClass($isEstimationInvoiced); ?>">Invoiced</a>
+                        <a href="<?php echo BASE_URL; ?>modules/estimations/status_dashboard.php" class="<?php echo $sublinkClass($isEstimationStatus); ?>">Status overview</a>
                     </div>
                 <?php endif; ?>
 

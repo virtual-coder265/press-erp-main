@@ -309,6 +309,10 @@ function dashboard_fetch_chart_data(PDO $pdo, int $months = 6, int $viewerUserId
 {
     $series = dashboard_month_series($months);
     $chartData = dashboard_empty_chart_data($series);
+
+    if (!hasPermission('view_dashboard_revenue') && !hasPermission('view_invoices')) {
+        return $chartData;
+    }
     $monthIndex = array_flip(array_column($series, 'key'));
     $firstWindow = $series[0] ?? dashboard_month_window(0);
     $lastWindow = $series[count($series) - 1] ?? dashboard_month_window(0);

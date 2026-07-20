@@ -22,7 +22,7 @@ ServerSignature Off
 
 # Block direct web access to dependency trees, cron scripts, and logs
 <IfModule mod_rewrite.c>
-    RewriteRule ^(?:vendor|node_modules|cron|logs|cli-tools)(?:/|$) - [F,L]
+    RewriteRule ^(?:vendor|node_modules|cron|logs|cli-tools|scripts)(?:/|$) - [F,L]
     RewriteRule ^modules/estimations/USAGE_EXAMPLES(?:\.php)?$ - [F,L]
 </IfModule>
 

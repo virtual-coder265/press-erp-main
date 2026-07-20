@@ -84,7 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 'source' => 'modules/auth/login',
             ]);
 
-            redirect('modules/dashboard/index');
+            require_once __DIR__ . '/../../includes/dashboard_landing_helper.php';
+            redirect(dashboard_default_landing_path());
         } else {
             $failure = $auditLogger->registerFailedLogin(
                 $email,

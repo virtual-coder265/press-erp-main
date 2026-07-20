@@ -16,10 +16,27 @@ require_once __DIR__ . '/../../includes/permissions_helper.php';
 permissions_require_one_of(['view_estimations']);
 require_once __DIR__ . '/../../libs/EstimationStatusManager.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
+require_once __DIR__ . '/../../includes/estimation_list_helper.php';
+require_once __DIR__ . '/../../includes/module_kpi_helper.php';
 
 EstimationAuditMigrator::ensure($pdo);
+$kpis = estimations_module_kpis($pdo);
 
 include '../../includes/header.php';
+
+$listView = estimation_normalize_list_view($_GET['view'] ?? 'drafts');
+$draftKindFilter = strtolower(trim((string) ($_GET['draft_kind'] ?? '')));
+if ($listView !== 'drafts') {
+    $draftKindFilter = '';
+}
+$listViewTitles = estimation_list_views();
+$pageTitle = $listViewTitles[$listView] . ' estimations';
+$pageDescriptions = [
+    'drafts' => 'In-progress estimates — autosaved, manually saved, auto-recovered, and abandoned drafts.',
+    'completed' => 'Finished estimates ready for approval or conversion to invoice.',
+    'invoiced' => 'Estimates that have been invoiced to customers.',
+];
+$pageDescription = $pageDescriptions[$listView] ?? '';
 
 // Surface flash messages set by save / delete / status-change endpoints.
 $flashSuccess = $_SESSION['success'] ?? null;
@@ -55,35 +72,69 @@ $query = "SELECT e.*,
 
 $params = [];
 
+$listFilters = estimation_list_query_filters($listView, $draftKindFilter);
+$query .= $listFilters['sql'];
+$params = array_merge($params, $listFilters['params']);
+
 if (!empty($search_query)) {
     $query .= " AND (e.estimation_number LIKE :search OR e.customer_name LIKE :search OR e.job_description LIKE :search)";
     $params['search'] = '%' . $search_query . '%';
 }
 
-if (!empty($status_filter)) {
-    $query .= " AND e.status = :status";
-    $params['status'] = $status_filter;
+if (!empty($status_filter) && $listView === 'completed') {
+    if ($status_filter === 'Draft') {
+        $query .= " AND e.status = 'Draft' AND (e.draft_data IS NULL OR e.draft_data = '')";
+    } else {
+        $query .= " AND e.status = :status";
+        $params['status'] = $status_filter;
+    }
 }
 
-$query .= " ORDER BY e.created_at DESC";
+if ($listView === 'drafts') {
+    $query .= " ORDER BY COALESCE(e.last_auto_saved, e.updated_at, e.created_at) DESC";
+} else {
+    $query .= " ORDER BY e.created_at DESC";
+}
 
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $estimations = $stmt->fetchAll();
 ?>
 
+<?php include __DIR__ . '/../../includes/partials/module_kpi_strip.php'; ?>
+
 <div class="list-toolbar mb-6">
     <div class="min-w-0">
-        <h1 class="text-3xl font-bold text-gray-800 break-words">Estimations</h1>
-        <p class="text-sm text-gray-500 mt-1">Review customer estimates, track status changes, and open detailed costing records.</p>
+        <h1 class="text-3xl font-bold text-gray-800 break-words"><?php echo htmlspecialchars($pageTitle); ?></h1>
+        <p class="text-sm text-gray-500 mt-1"><?php echo htmlspecialchars($pageDescription); ?></p>
     </div>
     <div class="list-toolbar-actions">
+        <?php if (hasPermission('manage_estimations')): ?>
         <a href="create" class="list-action-btn bg-green-600 text-white" aria-label="Create estimation">
             <i data-lucide="plus" class="sm:mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i>
             <span class="hidden sm:inline">Create New</span>
         </a>
+        <?php endif; ?>
     </div>
 </div>
+
+<?php if ($listView === 'drafts'): ?>
+<div class="flex flex-wrap gap-2 mb-4">
+    <?php foreach (estimation_draft_kind_filters() as $kindKey => $kindLabel): ?>
+        <?php
+        $isActive = $draftKindFilter === $kindKey;
+        $href = 'list?view=drafts' . ($kindKey !== '' ? '&draft_kind=' . urlencode($kindKey) : '');
+        if ($search_query !== '') {
+            $href .= '&search=' . urlencode($search_query);
+        }
+        ?>
+        <a href="<?php echo htmlspecialchars($href); ?>"
+            class="px-3 py-1.5 rounded-full text-sm font-semibold border transition <?php echo $isActive ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:border-green-400'; ?>">
+            <?php echo htmlspecialchars($kindLabel); ?>
+        </a>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
 
 <?php if ($flashSuccess): ?>
     <div class="bg-green-50 border border-green-200 text-green-800 rounded-lg p-4 mb-4">
@@ -99,18 +150,37 @@ $estimations = $stmt->fetchAll();
 <!-- Search & Filter Bar -->
 <div class="bg-white shadow rounded-lg p-6 mb-6">
     <form method="GET" action="" class="list-filters-grid md:grid-cols-12">
-        <div class="md:col-span-7 min-w-0">
+        <input type="hidden" name="view" value="<?php echo htmlspecialchars($listView); ?>">
+        <?php if ($listView === 'drafts' && $draftKindFilter !== ''): ?>
+            <input type="hidden" name="draft_kind" value="<?php echo htmlspecialchars($draftKindFilter); ?>">
+        <?php endif; ?>
+        <div class="md:col-span-<?php echo $listView === 'drafts' ? '10' : '7'; ?> min-w-0">
             <input type="text" name="search" placeholder="Search by Est #, Customer, or Job Description..."
                 class="w-full px-4 py-3 border border-gray-300 rounded-lg"
                 value="<?php echo htmlspecialchars($search_query); ?>">
         </div>
+        <?php if ($listView === 'drafts'): ?>
+        <div class="md:col-span-2 flex flex-col sm:flex-row gap-2">
+            <button type="submit" class="bg-green-600 text-white px-4 py-3 rounded hover:bg-green-700 transition flex items-center justify-center" aria-label="Search estimations">
+                <i data-lucide="search" class="sm:mr-2 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i>
+                <span class="hidden sm:inline">Search</span>
+            </button>
+            <?php if ($search_query || $draftKindFilter): ?>
+                <a href="list?view=drafts" class="bg-gray-300 text-gray-700 px-4 py-3 rounded hover:bg-gray-400 transition flex items-center justify-center" aria-label="Clear estimation filters">
+                    <i data-lucide="x" class="sm:mr-2 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i>
+                    <span class="hidden sm:inline">Clear</span>
+                </a>
+            <?php endif; ?>
+        </div>
+        <?php else: ?>
         <div class="md:col-span-3">
             <select name="status" class="w-full px-4 py-3 border border-gray-300 rounded-lg">
                 <option value="">All Statuses</option>
-                <option value="Draft" <?php echo $status_filter == 'Draft' ? 'selected' : ''; ?>>Draft</option>
-                <option value="Performer Invoiced" <?php echo $status_filter == 'Performer Invoiced' ? 'selected' : ''; ?>>Performer Invoiced</option>
-                <option value="Approved" <?php echo $status_filter == 'Approved' ? 'selected' : ''; ?>>Approved</option>
-                <option value="Invoiced" <?php echo $status_filter == 'Invoiced' ? 'selected' : ''; ?>>Invoiced</option>
+                <?php if ($listView === 'completed'): ?>
+                    <option value="Approved" <?php echo $status_filter == 'Approved' ? 'selected' : ''; ?>>Approved</option>
+                    <option value="Performer Invoiced" <?php echo $status_filter == 'Performer Invoiced' ? 'selected' : ''; ?>>Performer Invoiced</option>
+                    <option value="Draft" <?php echo $status_filter == 'Draft' ? 'selected' : ''; ?>>Completed (Draft status)</option>
+                <?php endif; ?>
             </select>
         </div>
         <div class="md:col-span-2 flex flex-col sm:flex-row gap-2">
@@ -119,27 +189,34 @@ $estimations = $stmt->fetchAll();
                 <span class="hidden sm:inline">Search</span>
             </button>
             <?php if ($search_query || $status_filter): ?>
-                <a href="list" class="bg-gray-300 text-gray-700 px-4 py-3 rounded hover:bg-gray-400 transition flex items-center justify-center" aria-label="Clear estimation filters">
+                <a href="list?view=<?php echo urlencode($listView); ?>" class="bg-gray-300 text-gray-700 px-4 py-3 rounded hover:bg-gray-400 transition flex items-center justify-center" aria-label="Clear estimation filters">
                     <i data-lucide="x" class="sm:mr-2 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i>
                     <span class="hidden sm:inline">Clear</span>
                 </a>
             <?php endif; ?>
         </div>
+        <?php endif; ?>
     </form>
 </div>
 
 <div class="list-view-shell">
     <div class="list-mobile-stack">
         <?php foreach ($estimations as $est): ?>
-            <?php $hasInvoice = (int) ($est['invoice_count'] ?? 0) > 0; ?>
+            <?php
+            $hasInvoice = (int) ($est['invoice_count'] ?? 0) > 0;
+            $canContinue = estimation_can_continue_draft($est);
+            ?>
             <div class="list-mobile-card">
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
                         <p class="list-card-title"><?php echo htmlspecialchars($est['estimation_number']); ?></p>
                         <p class="text-sm text-gray-500 mt-1 break-words"><?php echo htmlspecialchars($est['customer_name']); ?></p>
                     </div>
-                    <div class="flex-shrink-0">
+                    <div class="flex-shrink-0 flex flex-col items-end gap-1">
                         <?php echo EstimationStatusManager::getStatusBadgeHtml($est['status']); ?>
+                        <?php if ($listView === 'drafts'): ?>
+                            <?php echo estimation_draft_kind_badge_html($est); ?>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <div class="grid grid-cols-1 gap-3 mt-4 text-sm">
@@ -153,12 +230,31 @@ $estimations = $stmt->fetchAll();
                             <p class="list-card-value font-semibold text-gray-900">MK <?php echo number_format((float) $est['total_amount'], 2); ?></p>
                         </div>
                         <div>
-                            <p class="list-card-meta">Date</p>
-                            <p class="list-card-value"><?php echo date('M j, Y', strtotime($est['created_at'])); ?></p>
+                            <p class="list-card-meta"><?php echo $listView === 'drafts' ? 'Last saved' : 'Date'; ?></p>
+                            <p class="list-card-value">
+                                <?php
+                                if ($listView === 'drafts' && !empty($est['last_auto_saved'])) {
+                                    echo date('M j, Y H:i', strtotime($est['last_auto_saved']));
+                                } else {
+                                    echo date('M j, Y', strtotime($est['created_at']));
+                                }
+                                ?>
+                            </p>
                         </div>
                     </div>
+                    <?php if ($listView === 'drafts'): ?>
+                    <div>
+                        <p class="list-card-meta">Wizard step</p>
+                        <p class="list-card-value">Step <?php echo (int) ($est['draft_step'] ?? 1); ?> of 8</p>
+                    </div>
+                    <?php endif; ?>
                 </div>
-                <div class="grid grid-cols-4 gap-2 mt-4">
+                <div class="grid grid-cols-<?php echo $canContinue ? '5' : '4'; ?> gap-2 mt-4">
+                    <?php if ($canContinue): ?>
+                    <a href="edit_draft?id=<?php echo (int) $est['id']; ?>" class="list-icon-action bg-amber-600 text-white" aria-label="Continue draft" title="Continue">
+                        <i data-lucide="play" class="h-4 w-4" aria-hidden="true"></i>
+                    </a>
+                    <?php endif; ?>
                     <a href="view?id=<?php echo (int) $est['id']; ?>" class="list-icon-action bg-blue-600 text-white" aria-label="View estimation" title="View">
                         <i data-lucide="eye" class="h-4 w-4" aria-hidden="true"></i>
                     </a>
@@ -189,7 +285,7 @@ $estimations = $stmt->fetchAll();
         <?php if (empty($estimations)): ?>
             <div class="list-mobile-card text-center text-gray-500">
                 <i data-lucide="calculator" class="mx-auto mb-2 block h-12 w-12 text-gray-400" aria-hidden="true"></i>
-                No estimations found.
+                No <?php echo htmlspecialchars(strtolower($listViewTitles[$listView])); ?> estimations found.
             </div>
         <?php endif; ?>
     </div>
@@ -201,7 +297,13 @@ $estimations = $stmt->fetchAll();
                     <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Est #</th>
                     <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
                     <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                    <?php if ($listView === 'drafts'): ?>
+                    <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Draft type</th>
+                    <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Step</th>
+                    <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last saved</th>
+                    <?php else: ?>
                     <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <?php endif; ?>
                     <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                     <th scope="col" class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                     <th scope="col" class="text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -209,7 +311,10 @@ $estimations = $stmt->fetchAll();
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
                 <?php foreach ($estimations as $est): ?>
-                    <?php $hasInvoice = (int) ($est['invoice_count'] ?? 0) > 0; ?>
+                    <?php
+                    $hasInvoice = (int) ($est['invoice_count'] ?? 0) > 0;
+                    $canContinue = estimation_can_continue_draft($est);
+                    ?>
                     <tr>
                         <td class="text-sm font-medium text-gray-900">
                             <?php echo htmlspecialchars($est['estimation_number']); ?>
@@ -220,9 +325,17 @@ $estimations = $stmt->fetchAll();
                         <td class="text-sm text-gray-500 cell-wrap">
                             <?php echo htmlspecialchars($est['job_description'] ? substr($est['job_description'], 0, 60) . (strlen($est['job_description']) > 60 ? '...' : '') : '-'); ?>
                         </td>
+                        <?php if ($listView === 'drafts'): ?>
+                        <td><?php echo estimation_draft_kind_badge_html($est); ?></td>
+                        <td class="text-sm text-gray-500"><?php echo (int) ($est['draft_step'] ?? 1); ?> / 8</td>
+                        <td class="text-sm text-gray-500">
+                            <?php echo !empty($est['last_auto_saved']) ? date('M j, Y H:i', strtotime($est['last_auto_saved'])) : '—'; ?>
+                        </td>
+                        <?php else: ?>
                         <td>
                             <?php echo EstimationStatusManager::getStatusBadgeHtml($est['status']); ?>
                         </td>
+                        <?php endif; ?>
                         <td class="text-sm text-gray-500">
                             MK <?php echo number_format((float) $est['total_amount'], 2); ?>
                         </td>
@@ -231,6 +344,12 @@ $estimations = $stmt->fetchAll();
                         </td>
                         <td class="text-right text-sm font-medium">
                             <div class="flex items-center justify-end gap-2">
+                                <?php if ($canContinue): ?>
+                                <a href="edit_draft?id=<?php echo (int) $est['id']; ?>"
+                                    class="text-gray-400 hover:text-amber-600 transition-colors" title="Continue draft" aria-label="Continue draft">
+                                    <i data-lucide="play" class="h-5 w-5" aria-hidden="true"></i>
+                                </a>
+                                <?php endif; ?>
                                 <a href="view?id=<?php echo (int) $est['id']; ?>"
                                     class="text-gray-400 hover:text-blue-600 transition-colors" title="View estimation" aria-label="View estimation">
                                     <i data-lucide="eye" class="h-5 w-5" aria-hidden="true"></i>
@@ -263,7 +382,9 @@ $estimations = $stmt->fetchAll();
                 <?php endforeach; ?>
                 <?php if (empty($estimations)): ?>
                     <tr>
-                        <td colspan="7" class="text-center text-gray-500">No estimations found.</td>
+                        <td colspan="<?php echo $listView === 'drafts' ? '9' : '7'; ?>" class="text-center text-gray-500">
+                            No <?php echo htmlspecialchars(strtolower($listViewTitles[$listView])); ?> estimations found.
+                        </td>
                     </tr>
                 <?php endif; ?>
             </tbody>

@@ -91,7 +91,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 vat_amount = :vat_amt,
                 pre_vat_total = :pre_vat,
                 draft_data = NULL,
-                draft_step = 8
+                draft_step = 8,
+                draft_revision = 0,
+                draft_content_hash = NULL
                 WHERE id = :id");
             
             $stmt->execute([
@@ -225,8 +227,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
 
-        // 3. Ink Colour Breakdown
-        if (!empty($_POST['ink_colour'])) {
+        // 3. Ink (formula only / formula+breakdown / breakdown only)
+        $inkCalcMode = strtolower(trim((string) ($_POST['ink_calc_mode'] ?? 'formula_breakdown')));
+        if (!in_array($inkCalcMode, ['formula', 'formula_breakdown', 'breakdown'], true)) {
+            $inkCalcMode = 'formula_breakdown';
+        }
+        $inkTotal = parseCurrency($_POST['cost_ink'] ?? 0);
+
+        if (!empty($_POST['ink_colour']) && $inkCalcMode !== 'formula') {
             $inkStmt = $pdo->prepare("INSERT INTO estimation_ink_colours
                 (estimation_id, colour_name, kgs, rate, total, sort_order)
                 VALUES (?, ?, ?, ?, ?, ?)");
@@ -234,28 +242,32 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $kgs = floatval($_POST['ink_colour_kgs'][$i] ?? 0);
                 $rate = floatval($_POST['ink_colour_rate'][$i] ?? 0);
                 $total = parseCurrency($_POST['ink_colour_total'][$i] ?? 0);
-                if ($kgs > 0 || !empty($colour)) {
+                $pct = floatval($_POST['ink_colour_pct'][$i] ?? 0);
+                if ($kgs > 0 || $pct > 0 || !empty($colour)) {
                     $inkStmt->execute([$est_id, $colour, $kgs, $rate, $total, $i]);
                 }
             }
-            $inkTotal = parseCurrency($_POST['cost_ink'] ?? 0);
-            if ($inkTotal > 0) {
-                $stmtItem->execute([
-                    'eid' => $est_id,
-                    'type' => 'Material',
-                    'desc' => 'Ink',
-                    'qty' => 1,
-                    'price' => $inkTotal,
-                    'total' => $inkTotal,
-                    'json' => json_encode([
-                        'base' => $_POST['ink_measure_base'] ?? 0,
-                        'height' => $_POST['ink_height'] ?? 0,
-                        'pages' => $_POST['ink_pages'] ?? 0,
-                        'copies' => $_POST['ink_quantity_copies'] ?? 0,
-                        'kgs' => $_POST['ink_kgs'] ?? 0
-                    ])
-                ]);
-            }
+        }
+
+        if ($inkTotal > 0) {
+            $stmtItem->execute([
+                'eid' => $est_id,
+                'type' => 'Material',
+                'desc' => 'Ink',
+                'qty' => 1,
+                'price' => $inkTotal,
+                'total' => $inkTotal,
+                'json' => json_encode([
+                    'mode' => $inkCalcMode,
+                    'base' => $_POST['ink_measure_base'] ?? 0,
+                    'height' => $_POST['ink_height'] ?? 0,
+                    'pages' => $_POST['ink_pages'] ?? 0,
+                    'copies' => $_POST['ink_quantity_copies'] ?? 0,
+                    'kgs' => $_POST['ink_kgs'] ?? 0,
+                    'overall_rate' => $_POST['ink_overall_rate'] ?? null,
+                    'percentages' => $_POST['ink_colour_pct'] ?? [],
+                ]),
+            ]);
         }
 
         // 4. Binding Materials
@@ -427,7 +439,32 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
 
         $pdo->commit();
-        echo "<script>localStorage.removeItem('estimation_draft_v4'); window.location.href='list?success=created';</script>";
+        $userId = (int) $_SESSION['user_id'];
+        $savedEstId = (int) $est_id;
+        echo "<script>
+            (function () {
+                var userId = " . $userId . ";
+                var estId = " . $savedEstId . ";
+                var keys = [
+                    'estimation_draft:' + userId + ':active',
+                    'estimation_draft:' + userId
+                ];
+                if (estId) {
+                    keys.push('estimation_draft:' + userId + ':' + estId);
+                }
+                var tasks = [];
+                if (window.FormDraftStore) {
+                    keys.forEach(function (key) {
+                        tasks.push(FormDraftStore.remove(key).catch(function () {}));
+                    });
+                    FormDraftStore.clearPointer();
+                }
+                try { localStorage.removeItem('estimation_draft_v4'); } catch (e) {}
+                Promise.all(tasks).finally(function () {
+                    window.location.href = 'list?success=created';
+                });
+            })();
+        </script>";
 
     } catch (Exception $e) {
         if ($pdo->inTransaction()) {

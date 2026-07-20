@@ -87,6 +87,45 @@ class EstimationAuditMigrator
                 }
             }
 
+            if (!in_array('draft_origin', $existingColumns, true)) {
+                $pdo->exec(
+                    "ALTER TABLE `estimations`
+                     ADD COLUMN `draft_origin` VARCHAR(20) NULL DEFAULT NULL
+                        COMMENT 'How the wizard draft was created: autosave, manual, recovered'"
+                );
+            }
+
+            // Refresh column list after possible draft_origin add.
+            $existingColumns = self::fetchColumns($pdo);
+
+            if (!in_array('draft_revision', $existingColumns, true)) {
+                $pdo->exec(
+                    "ALTER TABLE `estimations`
+                     ADD COLUMN `draft_revision` INT NOT NULL DEFAULT 0
+                        COMMENT 'Monotonic draft revision for optimistic locking'"
+                );
+            }
+
+            if (!in_array('draft_content_hash', $existingColumns, true)) {
+                $pdo->exec(
+                    "ALTER TABLE `estimations`
+                     ADD COLUMN `draft_content_hash` CHAR(64) NULL DEFAULT NULL
+                        COMMENT 'SHA-256 of canonical draft_data JSON'"
+                );
+            }
+
+            // Backfill: existing non-empty drafts start at revision 1.
+            // Content hash is filled lazily on the next save/read using canonical JSON.
+            $pdo->exec(
+                "UPDATE `estimations`
+                 SET `draft_revision` = 1
+                 WHERE `status` = 'Draft'
+                   AND `draft_data` IS NOT NULL
+                   AND TRIM(`draft_data`) <> ''
+                   AND TRIM(`draft_data`) <> '{}'
+                   AND `draft_revision` = 0"
+            );
+
             require_once __DIR__ . '/MoneySchemaMigrator.php';
             MoneySchemaMigrator::ensure($pdo);
         } catch (Throwable $e) {

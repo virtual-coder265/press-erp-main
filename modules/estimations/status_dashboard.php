@@ -65,11 +65,11 @@ include '../../includes/header.php';
     </div>
     <div class="bg-white shadow rounded-lg p-6">
         <p class="text-gray-600 text-sm font-semibold uppercase">Total Amount</p>
-        <p class="text-3xl font-bold text-green-600 mt-2">MTW <?php echo number_format($total_amount, 2); ?></p>
+        <p class="metric-value text-green-600 mt-2">MK <?php echo number_format($total_amount, 2); ?></p>
     </div>
     <div class="bg-white shadow rounded-lg p-6">
         <p class="text-gray-600 text-sm font-semibold uppercase">Average Estimation</p>
-        <p class="text-3xl font-bold text-blue-600 mt-2">MTW <?php echo number_format($total_count > 0 ? $total_amount / $total_count : 0, 2); ?></p>
+        <p class="metric-value text-blue-600 mt-2">MK <?php echo number_format($total_count > 0 ? $total_amount / $total_count : 0, 2); ?></p>
     </div>
 </div>
 
@@ -97,10 +97,10 @@ include '../../includes/header.php';
                         <i data-lucide="<?php echo htmlspecialchars($details['icon'], ENT_QUOTES, 'UTF-8'); ?>"></i>
                     </span>
                 </div>
-                <p class="text-2xl font-bold text-gray-700 mb-1"><?php echo $count; ?></p>
+                <p class="metric-value text-gray-700 mb-1"><?php echo $count; ?></p>
                 <p class="text-sm text-gray-600 mb-3"><?php echo htmlspecialchars($details['description']); ?></p>
                 <p class="text-sm font-semibold text-gray-700">
-                    MTW <?php echo number_format($amount, 2); ?>
+                    MK <?php echo number_format($amount, 2); ?>
                 </p>
             </div>
         </a>
@@ -147,7 +147,7 @@ include '../../includes/header.php';
                                     </a>
                                 </td>
                                 <td class="px-4 py-2 text-gray-700"><?php echo htmlspecialchars($est['customer_name']); ?></td>
-                                <td class="px-4 py-2 text-gray-700">MTW <?php echo number_format($est['total_amount'], 2); ?></td>
+                                <td class="px-4 py-2 text-gray-700">MK <?php echo number_format($est['total_amount'], 2); ?></td>
                                 <td class="px-4 py-2">
                                     <span class="px-2 py-1 rounded text-xs font-semibold
                                         <?php if ($age > 30): ?>bg-red-100 text-red-800<?php elseif ($age > 14): ?>bg-yellow-100 text-yellow-800<?php else: ?>bg-green-100 text-green-800<?php endif; ?>">

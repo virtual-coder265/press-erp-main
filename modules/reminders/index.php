@@ -561,6 +561,47 @@ include '../../includes/header.php';
             </p>
         </header>
 
+        <div class="wo-dashboard-kpi-grid mb-6" aria-label="Reminder summary">
+            <?php foreach ($summaryCards as $card): ?>
+                <div class="wo-dashboard-kpi-card" data-tone="<?php echo htmlspecialchars($card['tone']); ?>">
+                    <div class="wo-dashboard-kpi-head">
+                        <div>
+                            <p class="wo-dashboard-kpi-label"><?php echo htmlspecialchars($card['label']); ?></p>
+                            <p class="wo-dashboard-kpi-value"><?php echo number_format((int) $card['value']); ?></p>
+                        </div>
+                        <span class="wo-dashboard-kpi-icon">
+                            <i data-lucide="calendar-clock" aria-hidden="true"></i>
+                        </span>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+
+        <?php if ($layout === 'board'): ?>
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
+                <?php foreach ($boardColumns as $column): ?>
+                    <section class="workspace-panel">
+                        <header class="mb-3">
+                            <h2 class="text-lg font-semibold text-gray-900"><?php echo htmlspecialchars($column['title']); ?></h2>
+                            <p class="text-sm text-gray-500"><?php echo htmlspecialchars($column['subtitle']); ?></p>
+                        </header>
+                        <div class="space-y-3">
+                            <?php foreach ($column['items'] as $reminder): ?>
+                                <article class="list-mobile-card">
+                                    <h3 class="list-card-title"><?php echo htmlspecialchars($reminder['title'] ?? 'Reminder'); ?></h3>
+                                    <p class="text-sm text-gray-500 mt-1"><?php echo htmlspecialchars(reminder_dashboard_excerpt($reminder['note'] ?? '')); ?></p>
+                                    <p class="text-xs text-gray-400 mt-2"><?php echo htmlspecialchars($reminder['due_meta']['label'] ?? 'No due date'); ?></p>
+                                </article>
+                            <?php endforeach; ?>
+                            <?php if (empty($column['items'])): ?>
+                                <p class="text-sm text-gray-500 italic">Nothing in this column yet.</p>
+                            <?php endif; ?>
+                        </div>
+                    </section>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
         <!-- Quick Add (Inline) -->
         <form method="POST" action="save" id="quick-add-form" class="todo-add-task">
             <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars(csrf_token('reminder_save')); ?>">

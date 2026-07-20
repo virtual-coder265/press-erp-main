@@ -441,7 +441,7 @@ include '../../includes/header.php';
                         </div>
                         <span class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Total Assigned</span>
                     </div>
-                    <div class="text-3xl font-bold text-slate-800"><?php echo number_format($totalAssigned); ?></div>
+                    <div class="metric-value text-slate-800"><?php echo number_format($totalAssigned); ?></div>
                 </div>
 
                 <div class="stat-card">
@@ -451,7 +451,7 @@ include '../../includes/header.php';
                         </div>
                         <span class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Open Tasks</span>
                     </div>
-                    <div class="text-3xl font-bold text-slate-800"><?php echo number_format($openAssigned); ?></div>
+                    <div class="metric-value text-slate-800"><?php echo number_format($openAssigned); ?></div>
                 </div>
 
                 <div class="stat-card <?php echo $overdueAssigned > 0 ? 'border-rose-200 bg-rose-50/30' : ''; ?>">
@@ -461,7 +461,7 @@ include '../../includes/header.php';
                         </div>
                         <span class="text-sm font-semibold <?php echo $overdueAssigned > 0 ? 'text-rose-600' : 'text-slate-500'; ?> uppercase tracking-wider">Overdue Alerts</span>
                     </div>
-                    <div class="text-3xl font-bold <?php echo $overdueAssigned > 0 ? 'text-rose-600' : 'text-slate-800'; ?>"><?php echo number_format($overdueAssigned); ?></div>
+                    <div class="metric-value <?php echo $overdueAssigned > 0 ? 'text-rose-600' : 'text-slate-800'; ?>"><?php echo number_format($overdueAssigned); ?></div>
                 </div>
 
                 <div class="stat-card">
@@ -471,7 +471,7 @@ include '../../includes/header.php';
                         </div>
                         <span class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Projects Managed</span>
                     </div>
-                    <div class="text-3xl font-bold text-slate-800"><?php echo number_format($totalManaged); ?></div>
+                    <div class="metric-value text-slate-800"><?php echo number_format($totalManaged); ?></div>
                 </div>
             </div>
         </div>

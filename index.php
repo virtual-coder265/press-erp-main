@@ -1,10 +1,9 @@
 <?php
 require_once __DIR__ . '/config/app.php';
 
-// Route to Dashboard if logged in, otherwise Login
 if (isset($_SESSION['user_id'])) {
-    redirect('modules/dashboard/index');
-} else {
-    redirect('modules/auth/login');
+    require_once __DIR__ . '/includes/dashboard_landing_helper.php';
+    redirect(dashboard_default_landing_path());
 }
-?>
+
+redirect('modules/auth/login');

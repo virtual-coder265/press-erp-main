@@ -28,6 +28,11 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function setOpen(open) {
+        if (open) {
+            document.dispatchEvent(new CustomEvent('press-erp:close-floating-panels', {
+                detail: { except: 'ai' },
+            }));
+        }
         root.classList.toggle('is-open', open);
         panel.classList.toggle('hidden', !open);
         panel.classList.toggle('is-open', open);
@@ -65,6 +70,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
     document.addEventListener('keydown', function (event) {
         if (event.key === 'Escape' && !panel.classList.contains('hidden')) {
+            setOpen(false);
+        }
+    });
+
+    document.addEventListener('press-erp:close-floating-panels', function (event) {
+        const except = event.detail && event.detail.except;
+        if (except === 'ai') {
+            return;
+        }
+        if (!panel.classList.contains('hidden')) {
             setOpen(false);
         }
     });

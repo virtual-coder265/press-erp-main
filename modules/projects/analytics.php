@@ -123,12 +123,12 @@ include '../../includes/header.php';
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <div class="workspace-panel p-6 bg-white border-l-4 border-blue-500">
             <p class="text-sm font-bold text-gray-500 uppercase mb-2">Total Projects</p>
-            <p class="text-3xl font-bold text-gray-800"><?php echo $total_projects; ?></p>
+            <p class="metric-value text-gray-800"><?php echo $total_projects; ?></p>
             <p class="text-xs text-blue-600 mt-2 font-semibold"><?php echo $active_projects; ?> effectively in progress</p>
         </div>
         <div class="workspace-panel p-6 bg-white border-l-4 border-green-500">
             <p class="text-sm font-bold text-gray-500 uppercase mb-2">Task Completion</p>
-            <p class="text-3xl font-bold text-gray-800">
+            <p class="metric-value text-gray-800">
                 <?php 
                     $completion_rate = $task_stats['total'] > 0 ? round(($task_stats['completed'] / $task_stats['total']) * 100) : 0;
                     echo $completion_rate . '%';
@@ -138,12 +138,12 @@ include '../../includes/header.php';
         </div>
         <div class="workspace-panel p-6 bg-white border-l-4 border-yellow-500">
             <p class="text-sm font-bold text-gray-500 uppercase mb-2">Pending Review</p>
-            <p class="text-3xl font-bold text-gray-800"><?php echo $task_stats['in_review'] ?? 0; ?></p>
+            <p class="metric-value text-gray-800"><?php echo $task_stats['in_review'] ?? 0; ?></p>
             <p class="text-xs text-yellow-600 mt-2 font-semibold">Awaiting PM validation</p>
         </div>
         <div class="workspace-panel p-6 bg-white border-l-4 border-red-500">
             <p class="text-sm font-bold text-gray-500 uppercase mb-2">Overdue Alerts</p>
-            <p class="text-3xl font-bold text-gray-800"><?php echo $task_stats['overdue'] ?? 0; ?></p>
+            <p class="metric-value text-gray-800"><?php echo $task_stats['overdue'] ?? 0; ?></p>
             <p class="text-xs text-red-600 mt-2 font-semibold">Immediate attention required</p>
         </div>
     </div>

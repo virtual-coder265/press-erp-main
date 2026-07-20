@@ -355,32 +355,32 @@ include __DIR__ . '/../../includes/header.php';
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
             <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                 <p class="text-xs uppercase tracking-wide text-gray-400">Critical events, 24h</p>
-                <p class="mt-3 text-3xl font-bold text-rose-600"><?php echo number_format($summary['critical_last_24h']); ?></p>
+                <p class="mt-3 metric-value text-rose-600"><?php echo number_format($summary['critical_last_24h']); ?></p>
                 <p class="mt-2 text-sm text-gray-500">High-severity audit entries that need administrator attention.</p>
             </div>
             <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                 <p class="text-xs uppercase tracking-wide text-gray-400">Failed or blocked logins, 24h</p>
-                <p class="mt-3 text-3xl font-bold text-amber-600"><?php echo number_format($summary['failed_logins_last_24h']); ?></p>
+                <p class="mt-3 metric-value text-amber-600"><?php echo number_format($summary['failed_logins_last_24h']); ?></p>
                 <p class="mt-2 text-sm text-gray-500">Unauthorized login attempts and requests rejected by active IP blocks.</p>
             </div>
             <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                 <p class="text-xs uppercase tracking-wide text-gray-400">Active IP blocks</p>
-                <p class="mt-3 text-3xl font-bold text-slate-800"><?php echo number_format($summary['active_blocks']); ?></p>
+                <p class="mt-3 metric-value text-slate-800"><?php echo number_format($summary['active_blocks']); ?></p>
                 <p class="mt-2 text-sm text-gray-500">IPs currently blocked from accessing the ERP.</p>
             </div>
             <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                 <p class="text-xs uppercase tracking-wide text-gray-400">Pending notifications</p>
-                <p class="mt-3 text-3xl font-bold text-blue-600"><?php echo number_format($summary['pending_notifications']); ?></p>
+                <p class="mt-3 metric-value text-blue-600"><?php echo number_format($summary['pending_notifications']); ?></p>
                 <p class="mt-2 text-sm text-gray-500">Queued notification jobs still waiting for dispatch.</p>
             </div>
             <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                 <p class="text-xs uppercase tracking-wide text-gray-400">Failed notifications</p>
-                <p class="mt-3 text-3xl font-bold text-rose-600"><?php echo number_format($summary['failed_notifications']); ?></p>
+                <p class="mt-3 metric-value text-rose-600"><?php echo number_format($summary['failed_notifications']); ?></p>
                 <p class="mt-2 text-sm text-gray-500">Notification queue items that exhausted delivery attempts.</p>
             </div>
             <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
                 <p class="text-xs uppercase tracking-wide text-gray-400">Failed emails</p>
-                <p class="mt-3 text-3xl font-bold text-rose-600"><?php echo number_format($summary['failed_emails']); ?></p>
+                <p class="mt-3 metric-value text-rose-600"><?php echo number_format($summary['failed_emails']); ?></p>
                 <p class="mt-2 text-sm text-gray-500">Email queue records that need troubleshooting or requeue support.</p>
             </div>
         </div>

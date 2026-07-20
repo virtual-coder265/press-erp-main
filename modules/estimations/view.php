@@ -154,6 +154,12 @@ unset($_SESSION['success'], $_SESSION['error']);
         </div>
 
         <div class="flex flex-wrap gap-2">
+            <?php if (($est['status'] ?? '') === EstimationStatusManager::STATUS_DRAFT && hasPermission('manage_estimations')): ?>
+            <a href="edit_draft?id=<?php echo (int) $est['id']; ?>"
+                class="inline-flex items-center gap-1 bg-amber-600 text-white px-4 py-2 rounded-lg shadow hover:bg-amber-700 transition">
+                <i data-lucide="play" class="h-4 w-4" aria-hidden="true"></i> Continue wizard
+            </a>
+            <?php endif; ?>
             <a href="edit?id=<?php echo (int) $est['id']; ?>"
                 class="inline-flex items-center gap-1 bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition">
                 <i data-lucide="pencil" class="h-4 w-4" aria-hidden="true"></i> Edit

@@ -5,28 +5,71 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
 permissions_require_one_of(['view_sales', 'view_invoices', 'view_dashboard_revenue']);
 require_once __DIR__ . '/../../libs/InvoiceAuditMigrator.php';
+require_once __DIR__ . '/../../includes/module_kpi_helper.php';
 InvoiceAuditMigrator::ensure($pdo);
 
-// Fetch all invoices / sales
+$searchQuery = trim((string) ($_GET['search'] ?? ''));
+$statusFilter = trim((string) ($_GET['status'] ?? ''));
+
 $query = "
-    SELECT i.*, 
-           e.estimation_number 
+    SELECT i.*,
+           e.estimation_number
     FROM invoices i
     LEFT JOIN estimations e ON i.estimation_id = e.id
-    ORDER BY i.created_date DESC, i.id DESC
+    WHERE 1=1
 ";
-// Wait, 'created_date' is 'generated_date' in invoices table. Let's fix that.
-$query = "
-    SELECT i.*, 
-           e.estimation_number 
-    FROM invoices i
-    LEFT JOIN estimations e ON i.estimation_id = e.id
-    ORDER BY i.generated_date DESC, i.id DESC
-";
-$invoices = $pdo->query($query)->fetchAll();
+$params = [];
+
+if ($searchQuery !== '') {
+    $query .= " AND (i.invoice_number LIKE :search OR i.customer_name LIKE :search OR e.estimation_number LIKE :search)";
+    $params['search'] = '%' . $searchQuery . '%';
+}
+
+if ($statusFilter !== '') {
+    $query .= " AND i.status = :status";
+    $params['status'] = $statusFilter;
+}
+
+$query .= " ORDER BY i.generated_date DESC, i.id DESC";
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$invoices = $stmt->fetchAll();
+$kpis = sales_module_kpis($pdo);
 
 include '../../includes/header.php';
 ?>
+
+<?php include __DIR__ . '/../../includes/partials/module_kpi_strip.php'; ?>
+
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+    <form method="GET" action="">
+        <div class="list-filters-grid">
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
+                <input type="search" name="search" value="<?php echo htmlspecialchars($searchQuery); ?>"
+                       placeholder="Invoice, customer, estimation..."
+                       class="w-full px-3 py-3 border border-gray-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                <select name="status" class="w-full px-3 py-3 border border-gray-300 rounded-lg">
+                    <option value="">All statuses</option>
+                    <?php foreach (['Paid', 'Partially Paid', 'Unpaid', 'Overdue'] as $statusOption): ?>
+                        <option value="<?php echo htmlspecialchars($statusOption); ?>" <?php echo $statusFilter === $statusOption ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($statusOption); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="flex items-end gap-2">
+                <button type="submit" class="list-action-btn is-create text-white">Filter</button>
+                <?php if ($searchQuery !== '' || $statusFilter !== ''): ?>
+                    <a href="index.php" class="list-action-btn is-export">Clear</a>
+                <?php endif; ?>
+            </div>
+        </div>
+    </form>
+</div>
 
 <div class="list-toolbar mb-6">
     <div class="min-w-0">

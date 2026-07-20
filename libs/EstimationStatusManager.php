@@ -233,12 +233,13 @@ class EstimationStatusManager
         }
 
         $stmt = $this->pdo->prepare($query);
-        $stmt->execute(['status' => $status]);
+        $stmt->bindValue(':status', $status, PDO::PARAM_STR);
         if ($limit) {
-            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+            $stmt->bindValue(':limit', (int) $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', (int) $offset, PDO::PARAM_INT);
         }
-        $stmt->execute(['status' => $status]);
+        $stmt->execute();
+
         return $stmt->fetchAll();
     }
 

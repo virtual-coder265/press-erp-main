@@ -19,6 +19,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/dashboard_metrics_helper.php';
 require_once __DIR__ . '/task_management_helper.php';
 require_once __DIR__ . '/reminder_helper.php';
+require_once __DIR__ . '/dashboard_landing_helper.php';
 
 // ---------------------------------------------------------------------------
 // Formatting helpers (extracted from modules/dashboard/index.php)
@@ -372,7 +373,13 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
     $role = (string) ($_SESSION['role'] ?? 'User');
 
     $stats = dashboard_fetch_summary_stats($pdo, $userId);
-    $chartData = dashboard_fetch_chart_data($pdo, 6, $userId);
+    $dashboardCanViewRevenueChart = hasPermission('view_dashboard_revenue') || hasPermission('view_invoices');
+    $dashboardPersona = dashboard_resolve_persona();
+    $dashboardPersonaLabel = dashboard_persona_label($dashboardPersona);
+    $dashboardPanelOrder = dashboard_panel_order($dashboardPersona);
+    $chartData = $dashboardCanViewRevenueChart
+        ? dashboard_fetch_chart_data($pdo, 6, $userId)
+        : dashboard_empty_chart_data(dashboard_month_series(6));
 
     // Recent projects ---------------------------------------------------------
     $recentProjects = [];
@@ -756,7 +763,8 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
                 : 'No overdue tasks are currently flagged.',
             'tone' => ((int) ($dashboardTaskSummary['Overdue'] ?? 0)) > 0 ? 'danger' : 'success',
             'icon' => ((int) ($dashboardTaskSummary['Overdue'] ?? 0)) > 0 ? 'triangle-alert' : 'circle-check',
-            'target' => 'wsModalTasks',
+            'target' => '',
+            'href' => BASE_URL . 'modules/tasks/list',
         ];
         $dashboardFocusItems[] = [
             'label' => 'Reminder attention',
@@ -766,7 +774,8 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
                 : 'Reminder pressure is under control at the moment.',
             'tone' => $dashboardReminderAttentionCount > 0 ? 'warning' : 'accent',
             'icon' => $dashboardReminderAttentionCount > 0 ? 'calendar-clock' : 'bell-dot',
-            'target' => 'wsModalReminders',
+            'target' => '',
+            'href' => BASE_URL . 'modules/reminders/index?scope=my_day',
         ];
     }
     if (hasPermission('view_projects')) {
@@ -776,7 +785,8 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
             'note' => 'Open the projects dashboard to review execution health and deadlines.',
             'tone' => 'accent',
             'icon' => 'folder-open',
-            'target' => 'wsModalProjects',
+            'target' => '',
+            'href' => BASE_URL . 'modules/projects/list',
         ];
     }
     if (hasPermission('view_dashboard_revenue')) {
@@ -786,19 +796,14 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
             'note' => 'Use the performance and revenue views to keep collections moving.',
             'tone' => 'neutral',
             'icon' => 'credit-card',
-            'target' => 'wsModalPerformance',
+            'target' => '',
+            'href' => BASE_URL . 'modules/sales/index',
         ];
     }
     $dashboardFocusItems = array_slice($dashboardFocusItems, 0, 4);
 
     // Debtors panel ------------------------------------------------------------
-    $dashboardDebtorRoles = [
-        'System Admin', 'Admin', 'Administrator', 'Costing', 'Costing Department',
-        'Costing Dept', 'Financial Controller', 'Financial Controllers',
-        'Finance Controller', 'Finance Controllers',
-    ];
-    $dashboardCanViewDebtorsPanel = in_array($role, $dashboardDebtorRoles, true)
-        || hasPermission('view_dashboard_revenue');
+    $dashboardCanViewDebtorsPanel = hasPermission('view_dashboard_revenue') || hasPermission('view_invoices');
     $dashboardDebtors = [];
     $dashboardDebtorsTotalBalance = 0.0;
     $dashboardDebtorsCriticalCount = 0;
@@ -897,9 +902,17 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
                         ? number_format($dashboardWorkOrdersPanel['active']) . ' open work orders'
                         : 'No open production jobs right now.'
                 );
+
+            require_once __DIR__ . '/work_order_helper.php';
+            require_once __DIR__ . '/work_order_dashboard_helper.php';
+            work_order_bootstrap($pdo);
+            $dashboardWorkOrdersPanel['active_queue'] = work_order_dashboard_active_queue($pdo, 5);
         } catch (Throwable $exception) {
             // Keep defaults when the work-order schema is unavailable.
         }
+    }
+    if (!isset($dashboardWorkOrdersPanel['active_queue'])) {
+        $dashboardWorkOrdersPanel['active_queue'] = [];
     }
     $dashboardOpenInvoiceCount = 0;
     $dashboardOverdueInvoiceCount = 0;
@@ -1648,6 +1661,10 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
         // raw data
         'stats' => $stats,
         'chartData' => $chartData,
+        'dashboardCanViewRevenueChart' => $dashboardCanViewRevenueChart,
+        'dashboardPersona' => $dashboardPersona,
+        'dashboardPersonaLabel' => $dashboardPersonaLabel,
+        'dashboardPanelOrder' => $dashboardPanelOrder,
         'recentProjects' => $recentProjects,
         'recentTasks' => $recentTasks,
         'taskSummary' => $taskSummary,
@@ -1763,6 +1780,9 @@ function dashboard_fragment_registry(): array
         'dashboard.hero.metrics' => [
             'view' => 'partials/hero_metrics.php',
             'permission_any' => ['view_projects', 'view_tasks', 'view_dashboard_revenue'],
+        ],
+        'dashboard.ops.kpi' => [
+            'view' => 'partials/ops_kpi_grid.php',
         ],
         'dashboard.focus.list' => [
             'view' => 'partials/focus_list.php',

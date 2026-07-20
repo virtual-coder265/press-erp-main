@@ -64,7 +64,7 @@ async function handleSend(input) {
 
 async function main() {
     const command = process.argv[2] || '';
-    const input = readPayload();
+    const input = command === 'send' ? readPayload() : {};
 
     switch (command) {
         case 'check':

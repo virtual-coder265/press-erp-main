@@ -125,6 +125,17 @@ $remindersHubUrl = BASE_URL . 'modules/reminders/index';
                 </a>
             </div>
         </div>
+        <form method="POST" action="<?php echo BASE_URL; ?>modules/dashboard/index" class="app-mobilebar-search">
+            <i data-lucide="search" class="app-mobilebar-search-icon" aria-hidden="true"></i>
+            <input
+                type="search"
+                name="search_query"
+                class="app-mobilebar-search-input"
+                placeholder="Search invoices, estimations, tasks..."
+                autocomplete="off"
+                value="<?php echo htmlspecialchars(trim((string) ($_POST['search_query'] ?? ''))); ?>"
+            >
+        </form>
     </div>
 
     <div id="mobile-notif-dropdown" class="dropdown-panel dropdown-wide md:hidden hidden fixed top-20 right-4 z-50 overflow-hidden">
@@ -181,4 +192,4 @@ $remindersHubUrl = BASE_URL . 'modules/reminders/index';
 
     <div class="app-main-shell flex-1 flex flex-col md:ml-0 transition-all duration-300 min-w-0">
         <?php include __DIR__ . '/topbar.php'; ?>
-        <main class="app-page flex-1 mt-20 md:mt-0 overflow-y-auto">
+        <main class="app-page flex-1 mt-28 md:mt-0 overflow-y-auto">

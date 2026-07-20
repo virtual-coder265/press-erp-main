@@ -1270,8 +1270,8 @@ body.ws-modal-open .todo-hover-card.is-open {
 }
 
 .todo-kpi-value {
-    font-size: 18px;
-    font-weight: 700;
+    font-size: var(--kpi-value-size, 1.125rem);
+    font-weight: var(--kpi-value-weight, 600);
     color: var(--ws-text);
     margin-top: 2px;
 }

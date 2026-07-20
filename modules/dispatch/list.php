@@ -5,9 +5,11 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
 permissions_require_one_of(['view_dispatch']);
 require_once __DIR__ . '/../../includes/work_order_helper.php';
+require_once __DIR__ . '/../../includes/module_kpi_helper.php';
 
 include '../../includes/header.php';
 work_order_bootstrap($pdo);
+$kpis = dispatch_module_kpis($pdo);
 
 // Search and filter functionality
 $search_query = $_GET['search'] ?? '';
@@ -84,43 +86,34 @@ if ($import_errors) {
 </div>
 <?php endif; ?>
 
+<?php include __DIR__ . '/../../includes/partials/module_kpi_strip.php'; ?>
 
-<!-- Page Header -->
-<div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-    <div>
-        <h1 class="text-3xl font-bold text-gray-800">Dispatch Register</h1>
-        <p class="text-gray-500 text-sm mt-1">Manage all dispatch entries and records</p>
+<div class="list-toolbar mb-6">
+    <div class="min-w-0">
+        <h1 class="text-3xl font-bold text-gray-800 break-words">Dispatch Register</h1>
+        <p class="text-sm text-gray-500 mt-1">Manage all dispatch entries and records</p>
     </div>
-    <div class="flex flex-wrap gap-2 w-full md:w-auto">
-        <!-- Export Dropdown -->
+    <div class="list-toolbar-actions">
         <div class="relative inline-block">
-            <button id="exportDropdown" class="bg-white border border-gray-300 text-gray-700 px-3 sm:px-4 py-3 rounded shadow-sm hover:bg-gray-50 transition flex items-center justify-center" aria-label="Export dispatch records">
-                <i class="material-icons sm:mr-2 text-gray-500">download</i>
+            <button id="exportDropdown" type="button" class="list-action-btn is-export" aria-label="Export dispatch records">
+                <i data-lucide="download" class="sm:mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
                 <span class="hidden sm:inline">Export</span>
-                <i class="material-icons ml-0 sm:ml-2 text-sm text-gray-500 hidden sm:inline">arrow_drop_down</i>
             </button>
             <div id="exportMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
-                <a href="export?format=pdf<?php echo !empty($search_query) ? '&search=' . urlencode($search_query) : ''; ?><?php echo !empty($work_order_filter) ? '&work_order=' . urlencode($work_order_filter) : ''; ?><?php echo !empty($date_from) ? '&date_from=' . urlencode($date_from) : ''; ?><?php echo !empty($date_to) ? '&date_to=' . urlencode($date_to) : ''; ?>" 
-                   class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
-                    <i class="material-icons text-red-500 mr-2" style="font-size: 18px;">picture_as_pdf</i> Export as PDF
-                </a>
-                <a href="export?format=excel<?php echo !empty($search_query) ? '&search=' . urlencode($search_query) : ''; ?><?php echo !empty($work_order_filter) ? '&work_order=' . urlencode($work_order_filter) : ''; ?><?php echo !empty($date_from) ? '&date_from=' . urlencode($date_from) : ''; ?><?php echo !empty($date_to) ? '&date_to=' . urlencode($date_to) : ''; ?>" 
-                   class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
-                    <i class="material-icons text-green-600 mr-2" style="font-size: 18px;">table_chart</i> Export as Excel
-                </a>
-                <a href="export?format=csv<?php echo !empty($search_query) ? '&search=' . urlencode($search_query) : ''; ?><?php echo !empty($work_order_filter) ? '&work_order=' . urlencode($work_order_filter) : ''; ?><?php echo !empty($date_from) ? '&date_from=' . urlencode($date_from) : ''; ?><?php echo !empty($date_to) ? '&date_to=' . urlencode($date_to) : ''; ?>" 
-                   class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center">
-                    <i class="material-icons text-blue-600 mr-2" style="font-size: 18px;">description</i> Export as CSV
-                </a>
+                <a href="export?format=pdf<?php echo !empty($search_query) ? '&search=' . urlencode($search_query) : ''; ?><?php echo !empty($work_order_filter) ? '&work_order=' . urlencode($work_order_filter) : ''; ?><?php echo !empty($date_from) ? '&date_from=' . urlencode($date_from) : ''; ?><?php echo !empty($date_to) ? '&date_to=' . urlencode($date_to) : ''; ?>"
+                   class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Export as PDF</a>
+                <a href="export?format=excel<?php echo !empty($search_query) ? '&search=' . urlencode($search_query) : ''; ?><?php echo !empty($work_order_filter) ? '&work_order=' . urlencode($work_order_filter) : ''; ?><?php echo !empty($date_from) ? '&date_from=' . urlencode($date_from) : ''; ?><?php echo !empty($date_to) ? '&date_to=' . urlencode($date_to) : ''; ?>"
+                   class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Export as Excel</a>
+                <a href="export?format=csv<?php echo !empty($search_query) ? '&search=' . urlencode($search_query) : ''; ?><?php echo !empty($work_order_filter) ? '&work_order=' . urlencode($work_order_filter) : ''; ?><?php echo !empty($date_from) ? '&date_from=' . urlencode($date_from) : ''; ?><?php echo !empty($date_to) ? '&date_to=' . urlencode($date_to) : ''; ?>"
+                   class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Export as CSV</a>
             </div>
         </div>
-        
-        <a href="import" class="bg-white border border-gray-300 text-gray-700 px-3 sm:px-4 py-3 rounded shadow-sm hover:bg-gray-50 transition flex items-center justify-center" aria-label="Import dispatch entries">
-            <i class="material-icons sm:mr-2 text-gray-500">upload_file</i>
+        <a href="import" class="list-action-btn is-export" aria-label="Import dispatch entries">
+            <i data-lucide="upload" class="sm:mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
             <span class="hidden sm:inline">Import</span>
         </a>
-        <a href="create" class="bg-green-600 text-white px-3 sm:px-4 py-3 rounded shadow hover:bg-green-700 transition flex items-center justify-center" aria-label="Create dispatch entry">
-            <i class="material-icons sm:mr-2">add</i>
+        <a href="create" class="list-action-btn is-create text-white" aria-label="Create dispatch entry">
+            <i data-lucide="plus" class="sm:mr-1 inline-block h-4 w-4" aria-hidden="true"></i>
             <span class="hidden sm:inline">New Entry</span>
         </a>
     </div>

@@ -54,6 +54,7 @@
         $assistantHasFeature = !empty(array_filter($assistantFeatureConfig));
         $assistantEnabled = $assistantEnabled && $assistantHasFeature;
     ?>
+    <?php include __DIR__ . '/smart_calculator.php'; ?>
     <?php if ($assistantEnabled): ?>
     <div id="aiAssistantRoot" class="ai-assistant-root" data-enabled="1">
         <button
@@ -145,6 +146,17 @@
     <script src="<?php echo asset('js/action-modals.js') . '?v=' . rawurlencode($actionModalsJsVersion); ?>"></script>
     <?php $ajaxComponentsJsVersion = file_exists(ROOT_PATH . 'assets/js/ajax-components.js') ? (string) filemtime(ROOT_PATH . 'assets/js/ajax-components.js') : (string) time(); ?>
     <script src="<?php echo asset('js/ajax-components.js') . '?v=' . rawurlencode($ajaxComponentsJsVersion); ?>"></script>
+    <?php if (!empty($_SESSION['user_id'])): ?>
+    <script>
+        window.PRESS_ERP_SMART_CALCULATOR = {
+            currencyPrefix: 'MK'
+        };
+    </script>
+    <?php $pressCalcJsVersion = file_exists(ROOT_PATH . 'assets/js/press-calculations.js') ? (string) filemtime(ROOT_PATH . 'assets/js/press-calculations.js') : (string) time(); ?>
+    <script src="<?php echo asset('js/press-calculations.js') . '?v=' . rawurlencode($pressCalcJsVersion); ?>"></script>
+    <?php $smartCalcJsVersion = file_exists(ROOT_PATH . 'assets/js/smart-calculator.js') ? (string) filemtime(ROOT_PATH . 'assets/js/smart-calculator.js') : (string) time(); ?>
+    <script src="<?php echo asset('js/smart-calculator.js') . '?v=' . rawurlencode($smartCalcJsVersion); ?>"></script>
+    <?php endif; ?>
     <?php if ($assistantEnabled): ?>
     <script>
         window.PRESS_ERP_AI_ASSISTANT = {
