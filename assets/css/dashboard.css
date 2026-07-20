@@ -3171,7 +3171,11 @@
     }
 
     .dashboard-ops-panel-grid {
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-ops-panel-grid > .dashboard-ops-panel:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
     }
 
     .dashboard-ops-kpi {
@@ -4150,20 +4154,12 @@
         grid-template-columns: 1fr;
     }
 
+    .dashboard-ops-panel-grid > .dashboard-ops-panel:last-child:nth-child(odd) {
+        grid-column: auto;
+    }
+
     .dashboard-ops-chart-meta {
         grid-template-columns: 1fr;
-    }
-}
-
-@media (min-width: 641px) and (max-width: 1023px) {
-    .dashboard-ops-panel-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
-@media (min-width: 1024px) {
-    .dashboard-ops-panel-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
