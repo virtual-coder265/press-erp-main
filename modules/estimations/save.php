@@ -23,24 +23,37 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
         $pdo->beginTransaction();
 
-        // Check if this is an update to an existing draft
-        $est_id = isset($_POST['est_id']) ? (int)$_POST['est_id'] : null;
-        $is_draft_edit = isset($_POST['is_draft_edit']) ? true : false;
-        
-        if ($est_id && $is_draft_edit) {
-            // Verify ownership and draft status
-            $checkStmt = $pdo->prepare("SELECT id, status FROM estimations WHERE id = :id AND created_by = :user");
+        // Resolve whether we are finalising an existing autosaved/manual draft.
+        $est_id = isset($_POST['est_id']) && $_POST['est_id'] !== '' ? (int) $_POST['est_id'] : null;
+        $existingEst = null;
+        $is_existing_draft = false;
+
+        if ($est_id) {
+            $checkStmt = $pdo->prepare("SELECT id, status, estimation_number FROM estimations WHERE id = :id AND created_by = :user");
             $checkStmt->execute(['id' => $est_id, 'user' => $_SESSION['user_id']]);
             $existingEst = $checkStmt->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$existingEst || $existingEst['status'] !== 'Draft') {
+
+            if ($existingEst && $existingEst['status'] === 'Draft') {
+                $is_existing_draft = true;
+            } elseif ($existingEst) {
                 http_response_code(403);
                 $pdo->rollBack();
                 die('Cannot update this estimation.');
+            } else {
+                // Stale/invalid est_id from the client — start fresh.
+                $est_id = null;
             }
         }
 
-        $est_number = $est_id ? null : ('EST-' . date('Y') . '-' . mt_rand(1000, 9999));
+        $est_number = null;
+        if (!$is_existing_draft) {
+            $est_number = 'EST-' . date('Y') . '-' . mt_rand(1000, 9999);
+        } else {
+            $currentNumber = (string) ($existingEst['estimation_number'] ?? '');
+            if ($currentNumber === '' || str_starts_with($currentNumber, 'DRAFT-')) {
+                $est_number = 'EST-' . date('Y') . '-' . mt_rand(1000, 9999);
+            }
+        }
 
         // --- Re-derive the breakdown server-side -------------------------------
         // We never trust the wizard's hidden totals blindly; we recompute the
@@ -72,9 +85,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $jobText .= "\n" . $_POST['job_description'];
         }
 
-        if ($est_id && $is_draft_edit) {
-            // Update existing draft
+        if ($is_existing_draft) {
+            // Finalise an existing draft (from edit_draft or autosaved new estimation).
+            $numberSql = $est_number !== null ? 'estimation_number = :num,' : '';
             $stmt = $pdo->prepare("UPDATE estimations SET
+                {$numberSql}
                 customer_name = :name,
                 customer_email = :email,
                 customer_phone = :phone,
@@ -95,8 +110,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 draft_revision = 0,
                 draft_content_hash = NULL
                 WHERE id = :id");
-            
-            $stmt->execute([
+
+            $updateParams = [
                 'id'          => $est_id,
                 'name'        => $_POST['customer_name']  ?? 'Unknown',
                 'email'       => $_POST['customer_email'] ?? '',
@@ -112,7 +127,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 'vat_pct'     => $vatPercent,
                 'vat_amt'     => $vatAmount,
                 'pre_vat'     => $taxableAmount,
-            ]);
+            ];
+            if ($est_number !== null) {
+                $updateParams['num'] = $est_number;
+            }
+
+            $stmt->execute($updateParams);
             
             // Delete existing items before re-adding
             $delStmt = $pdo->prepare("DELETE FROM estimation_items WHERE estimation_id = :id");
