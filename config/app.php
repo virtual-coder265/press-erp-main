@@ -41,19 +41,22 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once ROOT_PATH . 'includes/installer_helper.php';
 require_once ROOT_PATH . 'includes/datetime_picker_helper.php';
+require_once ROOT_PATH . 'includes/error_response_helper.php';
 installer_bootstrap_guard();
+app_register_error_handlers();
 
 if (
     MAINTENANCE_MODE &&
     (!isset($_SESSION['role']) || $_SESSION['role'] !== 'System Admin') &&
     strpos($_SERVER['PHP_SELF'] ?? '', 'modules/auth/login') === false &&
-    strpos($_SERVER['PHP_SELF'] ?? '', 'modules/installer') === false
+    strpos($_SERVER['PHP_SELF'] ?? '', 'modules/installer') === false &&
+    strpos($_SERVER['PHP_SELF'] ?? '', 'modules/errors/') === false
 ) {
-    http_response_code(503);
-    die("<div style='padding: 3rem; font-family: sans-serif; max-width: 42rem; margin: 0 auto; text-align: center;'>
-            <h1 style='font-size: 2rem; margin-bottom: 1rem;'>" . htmlspecialchars(APP_NAME) . " is under maintenance</h1>
-            <p style='font-size: 1rem; color: #555;'>We're applying configuration or system updates right now. Please try again shortly.</p>
-         </div>");
+    app_render_error(503, [
+        'title' => APP_NAME . ' is under maintenance',
+        'message' => 'We\'re applying configuration or system updates right now. Please try again shortly.',
+        'skip_audit' => true,
+    ]);
 }
 
 // Helper function for asset paths
@@ -107,13 +110,9 @@ if (!function_exists('checkAuthApi')) {
     function checkAuthApi(): void
     {
         if (!isset($_SESSION['user_id'])) {
-            header('Content-Type: application/json');
-            http_response_code(401);
-            echo json_encode([
-                'success' => false,
+            app_render_error_json(401, [
                 'message' => 'Your session has expired. Please sign in again.',
             ]);
-            exit;
         }
     }
 }
@@ -206,12 +205,12 @@ function hasPermission($slug) {
 // Helper to enforce permission on a page
 function checkPermission($slug) {
     if (!hasPermission($slug)) {
-        header('HTTP/1.1 403 Forbidden');
-        die("<div style='padding: 2rem; font-family: sans-serif; text-align: center;'>
-                <h1 style='font-size: 3rem; margin-bottom: 0.5rem;'>403</h1>
-                <p style='font-size: 1.25rem; color: #666;'>Access Denied. You do not have permission to view this page.</p>
-                <a href='" . BASE_URL . "index' style='display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem; background: #0f766e; color: white; text-decoration: none; border-radius: 4px;'>Return Home</a>
-             </div>");
+        app_render_error(403, [
+            'message' => 'You do not have permission to view or perform this action.',
+            'permission_slug' => (string) $slug,
+        ]);
     }
 }
+
+app_capture_request_return_url();
 ?>

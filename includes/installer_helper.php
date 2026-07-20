@@ -259,11 +259,15 @@ if (!function_exists('installer_bootstrap_guard')) {
         if (!installer_is_installed()) {
             if ($installerRequest) {
                 if (!installer_has_page_access()) {
-                    http_response_code(403);
-                    die("<div style='padding:3rem;font-family:sans-serif;max-width:42rem;margin:0 auto;text-align:center;'>
-                            <h1 style='font-size:2rem;margin-bottom:1rem;'>Installer Access Locked</h1>
-                            <p style='font-size:1rem;color:#555;'>This reinstall session requires a valid installer token from the system administration utility.</p>
-                         </div>");
+                    if (!function_exists('app_render_error')) {
+                        require_once __DIR__ . '/error_response_helper.php';
+                    }
+
+                    app_render_error(403, [
+                        'title' => 'Installer access locked',
+                        'message' => 'This reinstall session requires a valid installer token from the system administration utility.',
+                        'skip_audit' => true,
+                    ]);
                 }
                 return;
             }

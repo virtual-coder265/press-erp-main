@@ -64,13 +64,21 @@ try {
                 );
             }
 
-            http_response_code(403);
+            if (!function_exists('app_render_error')) {
+                require_once __DIR__ . '/../includes/error_response_helper.php';
+            }
+
             $blockedUntil = !empty($activeBlock['blocked_until']) ? $activeBlock['blocked_until'] : 'manually cleared';
-            die("<div style='padding: 3rem; font-family: sans-serif; max-width: 42rem; margin: 0 auto; text-align: center;'>
-                    <h1 style='font-size: 2rem; margin-bottom: 1rem;'>Access blocked</h1>
-                    <p style='font-size: 1rem; color: #555; margin-bottom: .75rem;'>This IP address is currently blocked from accessing " . htmlspecialchars(APP_NAME) . ".</p>
-                    <p style='font-size: .95rem; color: #777;'>Reason: " . htmlspecialchars((string) ($activeBlock['reason'] ?? 'Security control')) . "<br>Blocked until: " . htmlspecialchars((string) $blockedUntil) . "</p>
-                 </div>");
+            app_render_error(403, [
+                'title' => 'Access blocked',
+                'message' => 'This IP address is currently blocked from accessing ' . APP_NAME . '.',
+                'skip_audit' => true,
+                'context' => [
+                    'reason' => (string) ($activeBlock['reason'] ?? 'Security control'),
+                    'blocked_until' => (string) $blockedUntil,
+                    'block_id' => $activeBlock['id'] ?? null,
+                ],
+            ]);
         }
     }
 
@@ -167,11 +175,20 @@ try {
     }
 
 } catch (PDOException $e) {
-    if (env('APP_ENV', 'development') === 'production') {
-        error_log("DB Connection Error: " . $e->getMessage());
-        die("System is currently unavailable. Please try again later.");
-    } else {
-        die("ERROR: Could not connect. " . $e->getMessage());
+    error_log('DB Connection Error: ' . $e->getMessage());
+
+    if (!function_exists('app_render_error')) {
+        require_once __DIR__ . '/../includes/error_response_helper.php';
     }
+
+    $message = env('APP_ENV', 'development') === 'production'
+        ? 'System is currently unavailable. Please try again later.'
+        : 'Could not connect to the database. ' . $e->getMessage();
+
+    app_render_error(500, [
+        'title' => 'Database unavailable',
+        'message' => $message,
+        'context' => ['source' => 'database_connection'],
+    ]);
 }
 ?>

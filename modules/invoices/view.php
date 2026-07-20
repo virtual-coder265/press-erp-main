@@ -52,8 +52,13 @@ $stmt->execute(['id' => $id]);
 $invoice = $stmt->fetch();
 
 if (!$invoice) {
-    http_response_code(404);
-    die('Invoice not found.');
+    app_not_found('The invoice you requested does not exist or may have been removed.', [
+        'return_url' => 'modules/invoices/list',
+        'context' => [
+            'entity_type' => 'invoice',
+            'entity_id' => $id,
+        ],
+    ]);
 }
 
 // Best-effort customer fallback when the invoice predates the

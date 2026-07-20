@@ -42,6 +42,7 @@ include '../../includes/header.php';
 <script>
     window.dashboardCanViewRevenueChart = <?php echo !empty($dashboardCanViewRevenueChart) ? 'true' : 'false'; ?>;
     window.dashboardChartData = <?php echo !empty($dashboardCanViewRevenueChart) ? json_encode($chartData) : 'null'; ?>;
+    window.dashboardHeroTrendData = <?php echo json_encode($dashboardHeroTrend ?? [], JSON_UNESCAPED_UNICODE); ?>;
 </script>
 
 <?php $dashboardCssVersion = file_exists(ROOT_PATH . 'assets/css/dashboard.css') ? (string) filemtime(ROOT_PATH . 'assets/css/dashboard.css') : (string) time(); ?>
@@ -73,6 +74,10 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
     $order = (int) ($dashboardPanelOrder[$key] ?? 99);
     return ' style="order:' . $order . '"';
 };
+$dashboardMainColumnOrderStyle = static function (string $key) use ($dashboardMainColumnOrder): string {
+    $order = (int) ($dashboardMainColumnOrder[$key] ?? 99);
+    return ' style="order:' . $order . '"';
+};
 ?>
 
 <div class="todo-shell dashboard-home-shell">
@@ -90,44 +95,74 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
                     <p class="dashboard-ops-subtitle">
                         <?php echo htmlspecialchars($dashboardPersonaLabel ?? 'Operations'); ?> workspace · Here's what needs attention today.
                     </p>
+                    <?php include __DIR__ . '/partials/ops_date_range.php'; ?>
+                    <?php include __DIR__ . '/partials/ops_hero_trend.php'; ?>
                 </div>
 
                 <div class="dashboard-ops-hero-side">
-                    <div class="dashboard-ops-date-card">
-                        <span class="dashboard-ops-date-label">Today</span>
-                        <strong class="dashboard-ops-date-value"><?php echo htmlspecialchars($dashboardTodayDateLabel); ?></strong>
-                        <span class="dashboard-ops-date-meta"><?php echo htmlspecialchars($dashboardTodayWeekday); ?></span>
-                    </div>
+                    <?php include __DIR__ . '/partials/ops_date_card.php'; ?>
+
+                    <?php if (!empty($dashboardWorkspaceTiles)): ?>
+                        <?php include __DIR__ . '/partials/ops_workspace_shortcuts.php'; ?>
+                    <?php endif; ?>
 
                     <div class="dashboard-ops-action-row">
-                        <a href="<?php echo htmlspecialchars($dashboardQuickActionHref); ?>"
-                           class="dashboard-ops-action is-primary">
+                        <button type="button"
+                                class="dashboard-ops-action is-primary"
+                                data-ws-open="wsModalQuickActions">
                             <i data-lucide="zap" aria-hidden="true"></i>
                             Quick Actions
-                        </a>
-                        <a href="<?php echo BASE_URL; ?>modules/reports/index"
-                           class="dashboard-ops-action">
-                            <i data-lucide="bar-chart-3" aria-hidden="true"></i>
-                            Reports
-                        </a>
-                        <a href="<?php echo BASE_URL; ?>modules/tasks/list"
-                           class="dashboard-ops-action">
+                        </button>
+                        <?php if (hasPermission('view_dashboard_revenue') || hasPermission('view_estimations') || hasPermission('view_invoices') || hasPermission('view_projects')): ?>
+                            <button type="button"
+                                    class="dashboard-ops-action"
+                                    data-ws-open="wsModalReports">
+                                <i data-lucide="bar-chart-3" aria-hidden="true"></i>
+                                Reports
+                            </button>
+                        <?php else: ?>
+                            <a href="<?php echo BASE_URL; ?>modules/reports/index"
+                               class="dashboard-ops-action">
+                                <i data-lucide="bar-chart-3" aria-hidden="true"></i>
+                                Reports
+                            </a>
+                        <?php endif; ?>
+                        <button type="button"
+                                class="dashboard-ops-action"
+                                data-ws-open="wsModalActivity">
                             <i data-lucide="history" aria-hidden="true"></i>
                             Activity
-                        </a>
+                        </button>
                     </div>
                 </div>
             </section>
 
             <div class="dashboard-ops-panels-stack">
-            <?php if (!empty($dashboardPrimaryCards)): ?>
+            <?php if (!empty($dashboardShowEmptyWelcome)): ?>
+                <div<?php echo $dashboardPanelOrderStyle('kpis'); ?>>
+                    <?php include __DIR__ . '/partials/ops_empty_welcome.php'; ?>
+                </div>
+            <?php elseif (!empty($dashboardPrimaryCards)): ?>
                 <div data-ajax-component="dashboard.ops.kpi" data-ajax-refresh="120000"<?php echo $dashboardPanelOrderStyle('kpis'); ?>>
                     <?php include __DIR__ . '/partials/ops_kpi_grid.php'; ?>
                 </div>
             <?php endif; ?>
 
+            <?php if (!empty($dashboardFocusItems)): ?>
+                <div<?php echo $dashboardPanelOrderStyle('focus'); ?>>
+                    <?php include __DIR__ . '/partials/ops_focus_strip.php'; ?>
+                </div>
+            <?php endif; ?>
+
+            <div<?php echo $dashboardPanelOrderStyle('attention'); ?>>
+                <?php include __DIR__ . '/partials/ops_attention_inbox.php'; ?>
+            </div>
+
+            <div class="dashboard-ops-main-grid"<?php echo $dashboardPanelOrderStyle('main_grid'); ?>>
+                <div class="dashboard-ops-main-column">
+
             <?php if (!empty($dashboardWorkOrdersPanel['available'])): ?>
-            <section class="dashboard-ops-panel-grid" aria-label="Work order overview"<?php echo $dashboardPanelOrderStyle('work_orders'); ?>>
+            <section class="dashboard-ops-panel-grid dashboard-ops-main-panel" aria-label="Work order overview"<?php echo $dashboardMainColumnOrderStyle('work_orders'); ?>>
                     <div class="dashboard-ops-panel">
                         <div class="dashboard-ops-panel-head">
                             <div>
@@ -194,13 +229,19 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
             </section>
             <?php endif; ?>
 
-            <section class="dashboard-ops-panel-grid" aria-label="Financial and operational summaries"<?php echo $dashboardPanelOrderStyle('finance'); ?>>
+            <?php if (!empty($dashboardProductionPipeline)): ?>
+                <div class="dashboard-ops-main-panel"<?php echo $dashboardMainColumnOrderStyle('production_pipeline'); ?>>
+                    <?php include __DIR__ . '/partials/ops_production_pipeline.php'; ?>
+                </div>
+            <?php endif; ?>
+
+            <section class="dashboard-ops-panel-grid dashboard-ops-main-panel" aria-label="Financial and operational summaries"<?php echo $dashboardMainColumnOrderStyle('finance'); ?>>
                 <?php if (!empty($dashboardFinanceRows)): ?>
                     <div class="dashboard-ops-panel">
                         <div class="dashboard-ops-panel-head">
                             <div>
-                                <h2>Financial Summary (MTD)</h2>
-                                <p>Financial summary for the current month.</p>
+                                <h2>Financial Summary</h2>
+                                <p>Financial summary for <?php echo htmlspecialchars($dashboardDateRange['label'] ?? 'the selected period'); ?>.</p>
                             </div>
                             <?php if ($dashboardFinanceHref !== '#'): ?>
                                 <a href="<?php echo htmlspecialchars($dashboardFinanceHref); ?>" class="dashboard-ops-link">
@@ -302,6 +343,18 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
                 <?php endif; ?>
             </section>
 
+            <?php if (!empty($dashboardEstimationFunnel)): ?>
+                <div class="dashboard-ops-main-panel"<?php echo $dashboardMainColumnOrderStyle('estimation_funnel'); ?>>
+                    <?php include __DIR__ . '/partials/ops_estimation_funnel.php'; ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($dashboardProjectHealth['available'])): ?>
+                <div class="dashboard-ops-main-panel"<?php echo $dashboardMainColumnOrderStyle('project_health'); ?>>
+                    <?php include __DIR__ . '/partials/ops_project_health.php'; ?>
+                </div>
+            <?php endif; ?>
+
             <?php if ($dashboardCanViewDebtorsPanel): ?>
             <?php
             $debtorsPanelTotalBalance = max(0, (float) ($dashboardReceivablesSummary['total_balance'] ?? 0));
@@ -316,7 +369,7 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
             $debtorsBalance3160 = (float) ($dashboardReceivablesSummary['balance_31_60'] ?? 0);
             $debtorsBalance61Plus = (float) ($dashboardReceivablesSummary['balance_61_plus'] ?? 0);
             ?>
-            <section class="dashboard-ops-debtors-section" aria-label="Debtors follow-up"<?php echo $dashboardPanelOrderStyle('debtors'); ?>>
+            <section class="dashboard-ops-debtors-section dashboard-ops-main-panel" aria-label="Debtors follow-up"<?php echo $dashboardMainColumnOrderStyle('debtors'); ?>>
                     <div class="dashboard-ops-panel dashboard-ops-panel-debtors">
                         <div class="dashboard-ops-panel-head dashboard-ops-debtors-head">
                             <div class="dashboard-ops-debtors-head-title">
@@ -531,7 +584,7 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
             </section>
             <?php endif; ?>
 
-            <section class="dashboard-ops-panel" aria-label="Pending approvals"<?php echo $dashboardPanelOrderStyle('approvals'); ?>>
+            <section class="dashboard-ops-panel dashboard-ops-main-panel" aria-label="Pending approvals"<?php echo $dashboardMainColumnOrderStyle('approvals'); ?>>
                 <div class="dashboard-ops-panel-head">
                     <div>
                         <h2>Pending Approvals</h2>
@@ -568,6 +621,11 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
                     <div class="dashboard-ops-empty">No approvals are waiting in the currently visible queues.</div>
                 <?php endif; ?>
             </section>
+
+                </div>
+
+                <?php include __DIR__ . '/partials/ops_sidebar_rail.php'; ?>
+            </div>
 
             <section class="dashboard-ops-activity" aria-label="Recent activity"<?php echo $dashboardPanelOrderStyle('activity'); ?>>
                 <div class="dashboard-ops-activity-head">
@@ -1311,12 +1369,122 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
             });
         }
 
-        document.addEventListener('ajax:component:rendered', function (ev) {
-            var detail = ev && ev.detail;
-            if (!detail || detail.id !== 'dashboard.modal.reports' || !detail.root) {
+        function readHeroTrendPayload(scopeRoot) {
+            scopeRoot = scopeRoot || document;
+            const host = scopeRoot.querySelector ? scopeRoot.querySelector('[data-dashboard-hero-trend]') : null;
+            if (host && host.textContent) {
+                try {
+                    return JSON.parse(host.textContent);
+                } catch (err) {
+                    return window.dashboardHeroTrendData || {};
+                }
+            }
+            return window.dashboardHeroTrendData || {};
+        }
+
+        function bootstrapHeroTrendChart(scopeRoot) {
+            scopeRoot = scopeRoot || document;
+            const heroCanvas = scopeRoot.querySelector('#dashboardOpsHeroTrend');
+            if (!heroCanvas || typeof Chart === 'undefined') {
                 return;
             }
-            bootstrapDashboardCharts(detail.root);
+
+            if (typeof Chart.getChart === 'function') {
+                const existingChart = Chart.getChart(heroCanvas);
+                if (existingChart) {
+                    existingChart.destroy();
+                }
+            }
+
+            const heroTrend = readHeroTrendPayload(scopeRoot);
+            const labels = heroTrend.labels || [];
+            const values = heroTrend.values || [];
+            const metricLabel = heroTrend.metric_label || 'Collections';
+            const isCountMetric = heroTrend.metric === 'estimations';
+            const lineGradient = makeVerticalGradient(heroCanvas, '#0f766e');
+
+            new Chart(heroCanvas, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: metricLabel,
+                        data: values,
+                        borderColor: '#0f766e',
+                        backgroundColor: lineGradient,
+                        pointBackgroundColor: '#0f766e',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: labels.length > 14 ? 0 : 3,
+                        pointHoverRadius: 5,
+                        borderWidth: 3,
+                        tension: 0.42,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                            padding: 12,
+                            callbacks: {
+                                label: function (ctx) {
+                                    const val = ctx.parsed.y || 0;
+                                    if (isCountMetric) {
+                                        return metricLabel + ': ' + val;
+                                    }
+                                    return metricLabel + ': MK ' + currencyFormat.format(val);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                ...axisText(),
+                                maxTicksLimit: heroTrend.granularity === 'hour' ? 8 : 7,
+                                autoSkip: true
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: chartGrid(),
+                            ticks: {
+                                ...axisText(),
+                                maxTicksLimit: 5,
+                                callback: function (val) {
+                                    if (isCountMetric) {
+                                        return val;
+                                    }
+                                    return 'MK ' + compactCurrencyFormat.format(val);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        document.addEventListener('ajax:component:rendered', function (ev) {
+            var detail = ev && ev.detail;
+            if (!detail || !detail.root) {
+                return;
+            }
+            if (detail.id === 'dashboard.ops.hero_trend') {
+                bootstrapHeroTrendChart(detail.root);
+                return;
+            }
+            if (detail.id === 'dashboard.modal.reports') {
+                bootstrapDashboardCharts(detail.root);
+            }
         });
 
         if (typeof window.registerWorkspaceModal === 'function') {
@@ -1328,9 +1496,10 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
         }
 
         bootstrapInlineRevenueTrend();
+        bootstrapHeroTrendChart();
         }
 
-        const chartCanvases = document.querySelector('#trendChart, #invoiceStatusChart, #projectStatusChart, #dashboardInlineRevenueTrend, #estimationsTrendChart');
+        const chartCanvases = document.querySelector('#trendChart, #invoiceStatusChart, #projectStatusChart, #dashboardInlineRevenueTrend, #dashboardOpsHeroTrend, #estimationsTrendChart');
         if (chartCanvases) {
             loadChartJs(startDashboardCharts);
         }
@@ -1720,6 +1889,21 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
 
             setIcon(document.getElementById('weatherIcon'), iconFor(wmo, currentIsDay));
 
+            const opsWeatherIcon = document.getElementById('dashboardOpsWeatherIcon');
+            if (opsWeatherIcon) {
+                setIcon(opsWeatherIcon, iconFor(wmo, currentIsDay));
+            }
+            const opsWeatherTemp = document.getElementById('dashboardOpsWeatherTemp');
+            if (opsWeatherTemp) {
+                opsWeatherTemp.textContent = current.temperature !== null && current.temperature !== undefined
+                    ? Math.round(current.temperature) + '°'
+                    : '--°';
+            }
+            const opsDateCard = document.getElementById('dashboardOpsDateCard');
+            if (opsDateCard) {
+                opsDateCard.dataset.state = 'ready';
+            }
+
             // Forecast slots
             const slots = document.querySelectorAll('#weatherForecastGrid .weather-forecast-slot');
             (payload.hourly_next4 || []).slice(0, 4).forEach(function (slot, idx) {
@@ -1757,6 +1941,8 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
             setText('weatherDescription', message || 'Unable to reach the live weather service.');
             const currentCard = document.getElementById('weatherCurrentCard');
             if (currentCard) currentCard.dataset.state = 'error';
+            const opsDateCard = document.getElementById('dashboardOpsDateCard');
+            if (opsDateCard) opsDateCard.dataset.state = 'error';
         }
 
         function setCityLabel(city) {
@@ -1934,6 +2120,13 @@ $dashboardPanelOrderStyle = static function (string $key) use ($dashboardPanelOr
                 loadAndRender(state.city, hero);
             }, REFRESH_MS);
         };
+
+        document.addEventListener('DOMContentLoaded', function () {
+            if (document.getElementById('dashboardOpsDateCard')
+                && typeof window.initDashboardWeatherWidget === 'function') {
+                window.initDashboardWeatherWidget();
+            }
+        });
     })();
 </script>
 

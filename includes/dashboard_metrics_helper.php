@@ -61,6 +61,137 @@ function dashboard_month_series(int $months = 6): array
     return $series;
 }
 
+function dashboard_normalize_date_range_key(string $rawKey): string
+{
+    $rawKey = strtolower(trim($rawKey));
+    $aliases = [
+        'mtd' => 'month',
+        '30d' => 'week',
+    ];
+
+    $key = $aliases[$rawKey] ?? $rawKey;
+    if (!in_array($key, ['day', 'week', 'month', 'quarter'], true)) {
+        $key = 'month';
+    }
+
+    return $key;
+}
+
+function dashboard_resolve_date_range(array $params = []): array
+{
+    $key = dashboard_normalize_date_range_key((string) ($params['range'] ?? $_GET['range'] ?? 'month'));
+    $today = new DateTimeImmutable('today');
+
+    if ($key === 'day') {
+        $currentStart = $today;
+        $currentEnd = $today->modify('+1 day');
+        $previousStart = $today->modify('-1 day');
+        $previousEnd = $today;
+
+        return [
+            'key' => 'day',
+            'label' => 'Today',
+            'period_label' => 'Today',
+            'granularity' => 'hour',
+            'current' => [
+                'start' => $currentStart->format('Y-m-d'),
+                'end' => $currentEnd->format('Y-m-d'),
+            ],
+            'previous' => [
+                'start' => $previousStart->format('Y-m-d'),
+                'end' => $previousEnd->format('Y-m-d'),
+            ],
+        ];
+    }
+
+    if ($key === 'week') {
+        $currentStart = $today->modify('-6 days');
+        $currentEnd = $today->modify('+1 day');
+        $previousStart = $today->modify('-13 days');
+        $previousEnd = $currentStart;
+
+        return [
+            'key' => 'week',
+            'label' => 'Last 7 days',
+            'period_label' => 'Last 7 days',
+            'granularity' => 'day',
+            'current' => [
+                'start' => $currentStart->format('Y-m-d'),
+                'end' => $currentEnd->format('Y-m-d'),
+            ],
+            'previous' => [
+                'start' => $previousStart->format('Y-m-d'),
+                'end' => $previousEnd->format('Y-m-d'),
+            ],
+        ];
+    }
+
+    if ($key === 'quarter') {
+        $month = (int) $today->format('n');
+        $quarterStartMonth = ((int) floor(($month - 1) / 3) * 3) + 1;
+        $currentStart = new DateTimeImmutable($today->format('Y') . '-' . str_pad((string) $quarterStartMonth, 2, '0', STR_PAD_LEFT) . '-01');
+        $currentEnd = $currentStart->modify('+3 months');
+        $previousStart = $currentStart->modify('-3 months');
+        $previousEnd = $currentStart;
+
+        return [
+            'key' => 'quarter',
+            'label' => 'This quarter',
+            'period_label' => 'Quarter to date',
+            'granularity' => 'month',
+            'current' => [
+                'start' => $currentStart->format('Y-m-d'),
+                'end' => $currentEnd->format('Y-m-d'),
+            ],
+            'previous' => [
+                'start' => $previousStart->format('Y-m-d'),
+                'end' => $previousEnd->format('Y-m-d'),
+            ],
+        ];
+    }
+
+    $currentMonth = dashboard_month_window(0);
+    $prevMonth = dashboard_month_window(-1);
+
+    return [
+        'key' => 'month',
+        'label' => 'Month to date',
+        'period_label' => $currentMonth['label'],
+        'granularity' => 'week',
+        'current' => [
+            'start' => $currentMonth['start'],
+            'end' => $currentMonth['end'],
+        ],
+        'previous' => [
+            'start' => $prevMonth['start'],
+            'end' => $prevMonth['end'],
+        ],
+    ];
+}
+
+function dashboard_date_range_month_series(array $dateRange, int $months = 6): array
+{
+    $rangeKey = dashboard_normalize_date_range_key((string) ($dateRange['key'] ?? 'month'));
+    if ($rangeKey === 'week') {
+        $series = [];
+        $end = new DateTimeImmutable((string) ($dateRange['current']['end'] ?? date('Y-m-d')));
+        for ($offset = $months - 1; $offset >= 0; $offset--) {
+            $bucketEnd = $end->modify('-' . ($offset * 7) . ' days');
+            $bucketStart = $bucketEnd->modify('-7 days');
+            $series[] = [
+                'key' => $bucketStart->format('Y-m-d'),
+                'label' => $bucketStart->format('M j'),
+                'start' => $bucketStart->format('Y-m-d'),
+                'end' => $bucketEnd->format('Y-m-d'),
+            ];
+        }
+
+        return $series;
+    }
+
+    return dashboard_month_series($months);
+}
+
 function dashboard_empty_metric(): array
 {
     return [
@@ -87,14 +218,22 @@ function dashboard_empty_summary_stats(): array
     ];
 }
 
-function dashboard_fetch_summary_stats(PDO $pdo, int $viewerUserId = 0): array
+function dashboard_fetch_summary_stats(PDO $pdo, int $viewerUserId = 0, ?array $dateRange = null): array
 {
     require_once __DIR__ . '/../libs/InvoiceAuditMigrator.php';
     InvoiceAuditMigrator::ensure($pdo);
 
     $stats = dashboard_empty_summary_stats();
-    $currentMonth = dashboard_month_window(0);
-    $prevMonth = dashboard_month_window(-1);
+    $dateRange = $dateRange ?? dashboard_resolve_date_range();
+    $currentMonth = [
+        'start' => $dateRange['current']['start'],
+        'end' => $dateRange['current']['end'],
+        'label' => $dateRange['period_label'] ?? ($dateRange['label'] ?? date('M Y')),
+    ];
+    $prevMonth = [
+        'start' => $dateRange['previous']['start'],
+        'end' => $dateRange['previous']['end'],
+    ];
     $today = dashboard_day_window(0);
 
     try {
@@ -305,9 +444,10 @@ function dashboard_empty_chart_data(array $series): array
     ];
 }
 
-function dashboard_fetch_chart_data(PDO $pdo, int $months = 6, int $viewerUserId = 0): array
+function dashboard_fetch_chart_data(PDO $pdo, int $months = 6, int $viewerUserId = 0, ?array $dateRange = null): array
 {
-    $series = dashboard_month_series($months);
+    $dateRange = $dateRange ?? dashboard_resolve_date_range();
+    $series = dashboard_date_range_month_series($dateRange, $months);
     $chartData = dashboard_empty_chart_data($series);
 
     if (!hasPermission('view_dashboard_revenue') && !hasPermission('view_invoices')) {
@@ -407,4 +547,284 @@ function dashboard_fetch_chart_data(PDO $pdo, int $months = 6, int $viewerUserId
     }
 
     return $chartData;
+}
+
+function dashboard_table_has_column(PDO $pdo, string $table, string $column): bool
+{
+    static $cache = [];
+    $cacheKey = $table . '.' . $column;
+    if (array_key_exists($cacheKey, $cache)) {
+        return $cache[$cacheKey];
+    }
+
+    try {
+        $stmt = $pdo->prepare('SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '` LIKE ?');
+        $stmt->execute([$column]);
+        $cache[$cacheKey] = (bool) $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $exception) {
+        $cache[$cacheKey] = false;
+    }
+
+    return $cache[$cacheKey];
+}
+
+function dashboard_hero_trend_buckets(array $dateRange): array
+{
+    $key = dashboard_normalize_date_range_key((string) ($dateRange['key'] ?? 'month'));
+    $start = new DateTimeImmutable((string) ($dateRange['current']['start'] ?? date('Y-m-d')));
+    $end = new DateTimeImmutable((string) ($dateRange['current']['end'] ?? date('Y-m-d')));
+
+    if ($key === 'day') {
+        $buckets = [];
+        for ($hour = 0; $hour < 24; $hour++) {
+            $stamp = $start->setTime($hour, 0);
+            $buckets[] = [
+                'key' => (string) $hour,
+                'label' => $stamp->format('ga'),
+                'start' => $stamp->format('Y-m-d H:i:s'),
+                'end' => $stamp->setTime($hour, 59, 59)->format('Y-m-d H:i:s'),
+            ];
+        }
+
+        return [
+            'granularity' => 'hour',
+            'buckets' => $buckets,
+        ];
+    }
+
+    if ($key === 'week') {
+        $buckets = [];
+        $cursor = $start;
+        while ($cursor < $end) {
+            $next = $cursor->modify('+1 day');
+            $buckets[] = [
+                'key' => $cursor->format('Y-m-d'),
+                'label' => $cursor->format('D j'),
+                'start' => $cursor->format('Y-m-d'),
+                'end' => $next->format('Y-m-d'),
+            ];
+            $cursor = $next;
+        }
+
+        return [
+            'granularity' => 'day',
+            'buckets' => $buckets,
+        ];
+    }
+
+    if ($key === 'month') {
+        $buckets = [];
+        $cursor = $start;
+        while ($cursor < $end) {
+            $next = $cursor->modify('+7 days');
+            if ($next > $end) {
+                $next = $end;
+            }
+            $buckets[] = [
+                'key' => $cursor->format('Y-m-d'),
+                'label' => $cursor->format('M j'),
+                'start' => $cursor->format('Y-m-d'),
+                'end' => $next->format('Y-m-d'),
+            ];
+            if ($next >= $end) {
+                break;
+            }
+            $cursor = $next;
+        }
+
+        return [
+            'granularity' => 'week',
+            'buckets' => $buckets,
+        ];
+    }
+
+    $buckets = [];
+    $cursor = $start;
+    while ($cursor < $end) {
+        $next = $cursor->modify('+1 month');
+        $buckets[] = [
+            'key' => $cursor->format('Y-m'),
+            'label' => $cursor->format('M'),
+            'start' => $cursor->format('Y-m-d'),
+            'end' => $next->format('Y-m-d'),
+        ];
+        $cursor = $next;
+    }
+
+    return [
+        'granularity' => 'month',
+        'buckets' => $buckets,
+    ];
+}
+
+function dashboard_empty_hero_trend(array $dateRange): array
+{
+    $bucketPack = dashboard_hero_trend_buckets($dateRange);
+    $buckets = $bucketPack['buckets'] ?? [];
+
+    return [
+        'labels' => array_column($buckets, 'label'),
+        'values' => array_fill(0, count($buckets), 0.0),
+        'granularity' => $bucketPack['granularity'] ?? 'day',
+        'metric' => 'activity',
+        'metric_label' => 'Activity',
+        'total' => 0.0,
+    ];
+}
+
+function dashboard_fetch_hero_trend(PDO $pdo, array $dateRange): array
+{
+    $bucketPack = dashboard_hero_trend_buckets($dateRange);
+    $buckets = $bucketPack['buckets'] ?? [];
+    $granularity = (string) ($bucketPack['granularity'] ?? 'day');
+    $labels = array_column($buckets, 'label');
+    $values = array_fill(0, count($buckets), 0.0);
+    $metric = 'activity';
+    $metricLabel = 'Activity';
+
+    if (hasPermission('view_dashboard_revenue') || hasPermission('view_invoices')) {
+        $metric = 'collected';
+        $metricLabel = 'Collections';
+    } elseif (hasPermission('view_estimations')) {
+        $metric = 'estimations';
+        $metricLabel = 'Estimations';
+    }
+
+    if (empty($buckets)) {
+        return dashboard_empty_hero_trend($dateRange);
+    }
+
+    $rangeStart = (string) ($dateRange['current']['start'] ?? $buckets[0]['start']);
+    $rangeEnd = (string) ($dateRange['current']['end'] ?? end($buckets)['end']);
+
+    try {
+        if ($metric === 'estimations') {
+            if ($granularity === 'hour') {
+                $stmt = $pdo->prepare("
+                    SELECT HOUR(created_at) AS bucket_key, COUNT(*) AS aggregate_total
+                    FROM estimations
+                    WHERE status != 'Draft'
+                      AND created_at >= :start_at
+                      AND created_at < :end_at
+                    GROUP BY bucket_key
+                ");
+                $stmt->execute([
+                    'start_at' => $rangeStart . ' 00:00:00',
+                    'end_at' => $rangeEnd . ' 00:00:00',
+                ]);
+            } else {
+                $groupExpr = $granularity === 'month'
+                    ? "DATE_FORMAT(created_at, '%Y-%m')"
+                    : 'DATE(created_at)';
+                $stmt = $pdo->prepare("
+                    SELECT {$groupExpr} AS bucket_key, COUNT(*) AS aggregate_total
+                    FROM estimations
+                    WHERE status != 'Draft'
+                      AND created_at >= :start_at
+                      AND created_at < :end_at
+                    GROUP BY bucket_key
+                ");
+                $stmt->execute([
+                    'start_at' => $rangeStart . ' 00:00:00',
+                    'end_at' => $rangeEnd . ' 00:00:00',
+                ]);
+            }
+
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $bucketKey = (string) ($row['bucket_key'] ?? '');
+                foreach ($buckets as $index => $bucket) {
+                    if ($granularity === 'hour' && (string) $bucket['key'] === $bucketKey) {
+                        $values[$index] = (float) ($row['aggregate_total'] ?? 0);
+                    } elseif ($granularity === 'day' && $bucket['key'] === $bucketKey) {
+                        $values[$index] = (float) ($row['aggregate_total'] ?? 0);
+                    } elseif ($granularity === 'week' && $bucketKey >= $bucket['start'] && $bucketKey < $bucket['end']) {
+                        $values[$index] += (float) ($row['aggregate_total'] ?? 0);
+                    } elseif ($granularity === 'month' && $bucket['key'] === $bucketKey) {
+                        $values[$index] = (float) ($row['aggregate_total'] ?? 0);
+                    }
+                }
+            }
+        } else {
+            $hourColumn = dashboard_table_has_column($pdo, 'invoice_payments', 'created_at')
+                ? 'created_at'
+                : (dashboard_table_has_column($pdo, 'invoice_payments', 'recorded_at') ? 'recorded_at' : null);
+
+            if ($granularity === 'hour') {
+                if ($hourColumn !== null) {
+                    $stmt = $pdo->prepare("
+                        SELECT HOUR({$hourColumn}) AS bucket_key, COALESCE(SUM(amount), 0) AS aggregate_total
+                        FROM invoice_payments
+                        WHERE {$hourColumn} >= :start_at
+                          AND {$hourColumn} < :end_at
+                        GROUP BY bucket_key
+                    ");
+                    $stmt->execute([
+                        'start_at' => $rangeStart . ' 00:00:00',
+                        'end_at' => $rangeEnd . ' 00:00:00',
+                    ]);
+                    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                        foreach ($buckets as $index => $bucket) {
+                            if ((string) $bucket['key'] === (string) ($row['bucket_key'] ?? '')) {
+                                $values[$index] = (float) ($row['aggregate_total'] ?? 0);
+                            }
+                        }
+                    }
+                } else {
+                    $stmt = $pdo->prepare("
+                        SELECT COALESCE(SUM(amount), 0) AS aggregate_total
+                        FROM invoice_payments
+                        WHERE payment_date >= :start_date
+                          AND payment_date < :end_date
+                    ");
+                    $stmt->execute([
+                        'start_date' => $rangeStart,
+                        'end_date' => $rangeEnd,
+                    ]);
+                    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                    $total = (float) ($row['aggregate_total'] ?? 0);
+                    if ($total > 0) {
+                        $activeHour = (int) (new DateTimeImmutable('now'))->format('G');
+                        $values[$activeHour] = $total;
+                    }
+                }
+            } else {
+                $stmt = $pdo->prepare("
+                    SELECT payment_date AS bucket_key, COALESCE(SUM(amount), 0) AS aggregate_total
+                    FROM invoice_payments
+                    WHERE payment_date >= :start_date
+                      AND payment_date < :end_date
+                    GROUP BY bucket_key
+                ");
+                $stmt->execute([
+                    'start_date' => $rangeStart,
+                    'end_date' => $rangeEnd,
+                ]);
+
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                    $bucketKey = (string) ($row['bucket_key'] ?? '');
+                    $amount = (float) ($row['aggregate_total'] ?? 0);
+                    foreach ($buckets as $index => $bucket) {
+                        if ($granularity === 'day' && $bucket['key'] === $bucketKey) {
+                            $values[$index] = $amount;
+                        } elseif ($granularity === 'week' && $bucketKey >= $bucket['start'] && $bucketKey < $bucket['end']) {
+                            $values[$index] += $amount;
+                        } elseif ($granularity === 'month' && str_starts_with($bucketKey, $bucket['key'])) {
+                            $values[$index] += $amount;
+                        }
+                    }
+                }
+            }
+        }
+    } catch (Throwable $exception) {
+        return dashboard_empty_hero_trend($dateRange);
+    }
+
+    return [
+        'labels' => $labels,
+        'values' => $values,
+        'granularity' => $granularity,
+        'metric' => $metric,
+        'metric_label' => $metricLabel,
+        'total' => array_sum($values),
+    ];
 }

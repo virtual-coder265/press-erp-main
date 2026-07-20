@@ -19,10 +19,13 @@ if (!$dispatch) {
 
 // Get all users for authorised dispatcher selection
 $users = $pdo->query("SELECT id, name, email FROM users ORDER BY name")->fetchAll();
+//testing database error response
+/*@TODO: Remove this after testing!!!!!!!!!!!!!!!*/
+/*REMOVE THIS AFTER TESTING!!!!!!!!!!!!!!!*/
 $availableWorkOrders = work_order_safe_fetch(
     $pdo,
     "SELECT wo.id, wo.work_order_number, wo.customer_name, wo.status
-     FROM work_orders wo
+     FROM work_orders_TEST wo
      WHERE wo.status IN ('Awaiting Dispatch', 'Dispatched', 'Completed')
         OR wo.id = ?
      ORDER BY wo.work_order_number DESC",

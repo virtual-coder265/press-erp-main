@@ -356,6 +356,117 @@ if (!function_exists('dashboardMaterialRateMeta')) {
 // Context collector
 // ---------------------------------------------------------------------------
 
+if (!function_exists('dashboard_build_attention_inbox')) {
+    /**
+     * Merge focus, approvals, debtors, work orders, and reminders into one feed.
+     *
+     * @param array<string, mixed> $context
+     * @return array<int, array<string, mixed>>
+     */
+    function dashboard_build_attention_inbox(array $context): array
+    {
+        $items = [];
+
+        foreach ($context['dashboardFocusItems'] ?? [] as $focus) {
+            $tone = (string) ($focus['tone'] ?? 'neutral');
+            $severity = $tone === 'danger' ? 90 : ($tone === 'warning' ? 70 : 40);
+            $target = (string) ($focus['target'] ?? '');
+            $items[] = [
+                'severity' => $severity >= 80 ? 'critical' : ($severity >= 60 ? 'high' : 'medium'),
+                'severity_score' => $severity,
+                'type' => 'focus',
+                'icon' => (string) ($focus['icon'] ?? 'alert-circle'),
+                'title' => (string) ($focus['label'] ?? 'Focus item'),
+                'subtitle' => (string) ($focus['note'] ?? ''),
+                'value' => (string) ($focus['value'] ?? ''),
+                'age_label' => 'Now',
+                'href' => (string) ($focus['href'] ?? '#'),
+                'modal' => $target,
+            ];
+        }
+
+        foreach ($context['dashboardPendingApprovals'] ?? [] as $approval) {
+            $items[] = [
+                'severity' => 'high',
+                'severity_score' => 75,
+                'type' => 'approval',
+                'icon' => (string) ($approval['icon'] ?? 'clipboard-check'),
+                'title' => (string) ($approval['title'] ?? 'Approval'),
+                'subtitle' => (string) ($approval['subtitle'] ?? ''),
+                'value' => (string) ($approval['value'] ?? ''),
+                'age_label' => (string) ($approval['age_label'] ?? ''),
+                'href' => (string) ($approval['href'] ?? '#'),
+                'modal' => '',
+            ];
+        }
+
+        foreach ($context['dashboardDebtors'] ?? [] as $debtor) {
+            $ageDays = (int) ($debtor['max_age_days'] ?? 0);
+            if ($ageDays <= 30) {
+                continue;
+            }
+            $severity = $ageDays > 60 ? 95 : 80;
+            $items[] = [
+                'severity' => $severity >= 90 ? 'critical' : 'high',
+                'severity_score' => $severity,
+                'type' => 'debtor',
+                'icon' => 'wallet',
+                'title' => (string) ($debtor['debtor_name'] ?? 'Debtor'),
+                'subtitle' => number_format((int) ($debtor['invoice_count'] ?? 0)) . ' open invoice(s)',
+                'value' => 'MK ' . dashboardCurrency($debtor['balance'] ?? 0),
+                'age_label' => $ageDays . 'd overdue',
+                'href' => BASE_URL . 'modules/invoices/list?status=unpaid',
+                'modal' => '',
+            ];
+        }
+
+        foreach ($context['dashboardWorkOrdersPanel']['active_queue'] ?? [] as $job) {
+            $dueTone = (string) ($job['due_tone'] ?? 'neutral');
+            if ($dueTone !== 'danger' && $dueTone !== 'warning') {
+                continue;
+            }
+            $items[] = [
+                'severity' => $dueTone === 'danger' ? 'critical' : 'high',
+                'severity_score' => $dueTone === 'danger' ? 92 : 78,
+                'type' => 'work_order',
+                'icon' => 'briefcase',
+                'title' => (string) ($job['work_order_number'] ?? 'Work order'),
+                'subtitle' => (string) ($job['customer_name'] ?: 'Production job'),
+                'value' => (string) ($job['due_label'] ?? ''),
+                'age_label' => (string) ($job['status'] ?? ''),
+                'href' => BASE_URL . 'modules/work_orders/view?id=' . (int) ($job['id'] ?? 0),
+                'modal' => '',
+            ];
+        }
+
+        if (($context['dashboardReminderAttentionCount'] ?? 0) > 0) {
+            $items[] = [
+                'severity' => 'high',
+                'severity_score' => 72,
+                'type' => 'reminder',
+                'icon' => 'bell-dot',
+                'title' => 'Reminder attention',
+                'subtitle' => 'Due-today and overdue reminders need follow-up.',
+                'value' => number_format((int) $context['dashboardReminderAttentionCount']),
+                'age_label' => 'Today',
+                'href' => BASE_URL . 'modules/reminders/index?scope=my_day',
+                'modal' => 'wsModalReminders',
+            ];
+        }
+
+        usort($items, static function (array $left, array $right): int {
+            $scoreCompare = ((int) ($right['severity_score'] ?? 0)) <=> ((int) ($left['severity_score'] ?? 0));
+            if ($scoreCompare !== 0) {
+                return $scoreCompare;
+            }
+
+            return strcmp((string) ($left['title'] ?? ''), (string) ($right['title'] ?? ''));
+        });
+
+        return array_slice($items, 0, 8);
+    }
+}
+
 /**
  * Build the full dashboard context bundle (data + computed UI helpers).
  *
@@ -372,14 +483,17 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
     $userId = (int) ($_SESSION['user_id'] ?? 0);
     $role = (string) ($_SESSION['role'] ?? 'User');
 
-    $stats = dashboard_fetch_summary_stats($pdo, $userId);
+    $dashboardDateRange = dashboard_resolve_date_range($params);
+    $stats = dashboard_fetch_summary_stats($pdo, $userId, $dashboardDateRange);
     $dashboardCanViewRevenueChart = hasPermission('view_dashboard_revenue') || hasPermission('view_invoices');
     $dashboardPersona = dashboard_resolve_persona();
     $dashboardPersonaLabel = dashboard_persona_label($dashboardPersona);
     $dashboardPanelOrder = dashboard_panel_order($dashboardPersona);
+    $dashboardMainColumnOrder = dashboard_main_column_order($dashboardPersona);
     $chartData = $dashboardCanViewRevenueChart
-        ? dashboard_fetch_chart_data($pdo, 6, $userId)
-        : dashboard_empty_chart_data(dashboard_month_series(6));
+        ? dashboard_fetch_chart_data($pdo, 6, $userId, $dashboardDateRange)
+        : dashboard_empty_chart_data(dashboard_date_range_month_series($dashboardDateRange, 6));
+    $dashboardHeroTrend = dashboard_fetch_hero_trend($pdo, $dashboardDateRange);
 
     // Recent projects ---------------------------------------------------------
     $recentProjects = [];
@@ -571,7 +685,7 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
     }
 
     // Hero / metrics derived ---------------------------------------------------
-    $currentMonthLabel = date('F Y');
+    $currentMonthLabel = (string) ($dashboardDateRange['period_label'] ?? date('F Y'));
     $currentHour = (int) date('G');
     $dashboardGreeting = $currentHour < 12
         ? 'Good morning'
@@ -763,8 +877,8 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
                 : 'No overdue tasks are currently flagged.',
             'tone' => ((int) ($dashboardTaskSummary['Overdue'] ?? 0)) > 0 ? 'danger' : 'success',
             'icon' => ((int) ($dashboardTaskSummary['Overdue'] ?? 0)) > 0 ? 'triangle-alert' : 'circle-check',
-            'target' => '',
-            'href' => BASE_URL . 'modules/tasks/list',
+            'target' => 'wsModalTasks',
+            'href' => BASE_URL . 'modules/tasks/list?my_tasks=1',
         ];
         $dashboardFocusItems[] = [
             'label' => 'Reminder attention',
@@ -774,7 +888,7 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
                 : 'Reminder pressure is under control at the moment.',
             'tone' => $dashboardReminderAttentionCount > 0 ? 'warning' : 'accent',
             'icon' => $dashboardReminderAttentionCount > 0 ? 'calendar-clock' : 'bell-dot',
-            'target' => '',
+            'target' => 'wsModalReminders',
             'href' => BASE_URL . 'modules/reminders/index?scope=my_day',
         ];
     }
@@ -785,7 +899,7 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
             'note' => 'Open the projects dashboard to review execution health and deadlines.',
             'tone' => 'accent',
             'icon' => 'folder-open',
-            'target' => '',
+            'target' => 'wsModalProjects',
             'href' => BASE_URL . 'modules/projects/list',
         ];
     }
@@ -796,7 +910,7 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
             'note' => 'Use the performance and revenue views to keep collections moving.',
             'tone' => 'neutral',
             'icon' => 'credit-card',
-            'target' => '',
+            'target' => 'wsModalPerformance',
             'href' => BASE_URL . 'modules/sales/index',
         ];
     }
@@ -1244,12 +1358,12 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
 
     if (hasPermission('view_dashboard_revenue')) {
         $dashboardFinanceRows[] = [
-            'label' => 'Revenue (MTD)',
+            'label' => 'Revenue (' . $currentMonthLabel . ')',
             'value' => 'MK ' . dashboardCurrency($stats['total_revenue']['current'] ?? 0),
             'change' => $stats['total_revenue']['growth'] ?? '0%',
         ];
         $dashboardFinanceRows[] = [
-            'label' => 'Collected (MTD)',
+            'label' => 'Collected (' . $currentMonthLabel . ')',
             'value' => 'MK ' . dashboardCurrency($stats['collected']['current'] ?? 0),
             'change' => $stats['collected']['growth'] ?? '0%',
         ];
@@ -1276,11 +1390,13 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
     $dashboardFinanceRows = array_slice($dashboardFinanceRows, 0, 5);
 
     if (hasPermission('view_dashboard_revenue')) {
+        $revenueGrowth = (string) ($stats['total_revenue']['growth'] ?? '0%');
         $dashboardPrimaryCards[] = [
-            'label' => 'Total Revenue (MTD)',
+            'label' => 'Total Revenue',
             'value' => 'MK ' . dashboardCurrency($stats['total_revenue']['current'] ?? 0),
-            'note' => ($stats['total_revenue']['growth'] ?? '0%') . ' vs last month',
-            'tone' => strpos((string) ($stats['total_revenue']['growth'] ?? ''), '-') !== false ? 'danger' : 'success',
+            'note' => $revenueGrowth . ' vs prior period',
+            'growth' => $revenueGrowth,
+            'tone' => strpos($revenueGrowth, '-') !== false ? 'danger' : 'success',
             'icon' => 'wallet',
             'href' => BASE_URL . 'modules/sales/index',
             'target' => '',
@@ -1288,15 +1404,17 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
     }
 
     if (hasPermission('view_invoices') || hasPermission('view_dashboard_revenue')) {
+        $outstandingGrowth = (string) ($stats['outstanding']['growth'] ?? '0%');
         $dashboardPrimaryCards[] = [
             'label' => 'Open Invoices',
             'value' => 'MK ' . dashboardCurrency($stats['outstanding']['val'] ?? 0),
             'note' => $dashboardOverdueInvoiceCount > 0
                 ? $dashboardOverdueInvoiceCount . ' overdue'
                 : number_format($dashboardOpenInvoiceCount) . ' open invoices',
+            'growth' => $outstandingGrowth,
             'tone' => $dashboardOverdueInvoiceCount > 0 ? 'danger' : 'warning',
             'icon' => 'receipt',
-            'href' => BASE_URL . 'modules/invoices/list',
+            'href' => BASE_URL . 'modules/invoices/list?status=unpaid',
             'target' => '',
         ];
     }
@@ -1330,9 +1448,10 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
             'label' => 'Active Work Orders',
             'value' => number_format($workOrderActive),
             'note' => $workOrderNote,
+            'growth' => $workOrderOverdue > 0 ? '+' . number_format($workOrderOverdue) . ' overdue' : '0%',
             'tone' => $workOrderTone,
             'icon' => 'briefcase',
-            'href' => (string) ($dashboardWorkOrdersPanel['href'] ?? ''),
+            'href' => BASE_URL . 'modules/work_orders/list?status=In+Production',
             'target' => '',
         ];
     }
@@ -1344,6 +1463,7 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
             'note' => $dashboardHighPriorityTodayCount > 0
                 ? $dashboardHighPriorityTodayCount . ' high priority'
                 : 'No high priority due today',
+            'growth' => $dashboardHighPriorityTodayCount > 0 ? '+' . number_format($dashboardHighPriorityTodayCount) : '0%',
             'tone' => $dashboardHighPriorityTodayCount > 0 ? 'danger' : 'success',
             'icon' => 'calendar-clock',
             'href' => BASE_URL . 'modules/tasks/list?my_tasks=1',
@@ -1352,22 +1472,26 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
     }
 
     if (hasPermission('view_projects')) {
+        $projectGrowth = (string) ($stats['active_projects']['growth'] ?? '0%');
         $dashboardPrimaryCards[] = [
             'label' => 'Active Projects',
             'value' => number_format((int) ($stats['active_projects']['val'] ?? 0)),
-            'note' => ($stats['active_projects']['growth'] ?? '0%') . ' vs last month',
+            'note' => $projectGrowth . ' vs prior period',
+            'growth' => $projectGrowth,
             'tone' => 'neutral',
             'icon' => 'folder-open',
-            'href' => BASE_URL . 'modules/projects/list',
+            'href' => BASE_URL . 'modules/projects/list?status=In+Progress',
             'target' => '',
         ];
     }
 
     if (hasPermission('view_dispatch')) {
+        $dispatchGrowth = (string) ($stats['dispatched']['growth'] ?? '0%');
         $dashboardPrimaryCards[] = [
             'label' => 'Dispatch Today',
             'value' => number_format((int) ($stats['dispatched']['val'] ?? 0)),
-            'note' => ($stats['dispatched']['current'] ?? 0) . ' this month',
+            'note' => ($stats['dispatched']['current'] ?? 0) . ' in selected period',
+            'growth' => $dispatchGrowth,
             'tone' => 'neutral',
             'icon' => 'truck',
             'href' => BASE_URL . 'modules/dispatch/list',
@@ -1376,17 +1500,19 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
     }
 
     if (hasPermission('view_estimations')) {
+        $estimationGrowth = (string) ($stats['estimations']['growth'] ?? '0%');
         $dashboardPrimaryCards[] = [
             'label' => 'Estimations',
             'value' => number_format((int) ($stats['estimations']['current'] ?? 0)),
             'note' => $currentMonthLabel,
+            'growth' => $estimationGrowth,
             'tone' => 'success',
             'icon' => 'file-text',
             'href' => BASE_URL . 'modules/estimations/list',
             'target' => '',
         ];
     }
-    $dashboardPrimaryCards = array_slice($dashboardPrimaryCards, 0, 4);
+    $dashboardPrimaryCards = dashboard_prioritize_primary_cards($dashboardPrimaryCards, $dashboardPersona);
 
     // Hero metric cards --------------------------------------------------------
     $dashboardProjectCount = (int) ($stats['active_projects']['val'] ?? 0);
@@ -1639,6 +1765,203 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
         'tone' => 'neutral',
         'preview' => $wsQuickActionsPreview,
     ];
+    $dashboardWorkspaceTiles = dashboard_filter_workspace_tiles($wsDashboardTiles, $dashboardPersona, 4);
+
+    // Mini panels --------------------------------------------------------------
+    $dashboardEstimationFunnel = [];
+    $dashboardEstimationFunnelBottleneck = '';
+    if (hasPermission('view_estimations')) {
+        try {
+            require_once __DIR__ . '/../libs/EstimationStatusManager.php';
+            $estimationManager = new EstimationStatusManager($pdo);
+            $estimationStats = $estimationManager->getStatisticsByStatus();
+            $statusTotals = [];
+            foreach (EstimationStatusManager::getAllStatuses() as $status) {
+                $statusTotals[$status] = ['count' => 0, 'total_amount' => 0.0];
+            }
+            foreach ($estimationStats as $row) {
+                $status = (string) ($row['status'] ?? '');
+                if (!isset($statusTotals[$status])) {
+                    continue;
+                }
+                $statusTotals[$status] = [
+                    'count' => (int) ($row['count'] ?? 0),
+                    'total_amount' => (float) ($row['total_amount'] ?? 0),
+                ];
+            }
+            foreach ($statusTotals as $status => $meta) {
+                $details = EstimationStatusManager::getStatusDetails($status);
+                $dashboardEstimationFunnel[] = [
+                    'status' => $status,
+                    'label' => (string) ($details['label'] ?? $status),
+                    'icon' => (string) ($details['icon'] ?? 'file-text'),
+                    'count' => (int) ($meta['count'] ?? 0),
+                    'amount' => (float) ($meta['total_amount'] ?? 0),
+                    'href' => BASE_URL . 'modules/estimations/list?status=' . rawurlencode($status),
+                ];
+            }
+
+            $stuckStmt = $pdo->query(
+                "SELECT COUNT(*) FROM estimations
+                 WHERE status = 'Performer Invoiced'
+                   AND created_at < DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
+            );
+            $stuckCount = (int) ($stuckStmt->fetchColumn() ?: 0);
+            if ($stuckCount > 0) {
+                $dashboardEstimationFunnelBottleneck = number_format($stuckCount) . ' estimation(s) stuck in Performer Invoiced for 7+ days';
+            }
+        } catch (Throwable $exception) {
+            $dashboardEstimationFunnel = [];
+        }
+    }
+
+    $dashboardProjectHealth = [
+        'available' => false,
+        'overdue_tasks' => 0,
+        'projects_at_risk' => 0,
+        'top_projects' => [],
+        'assignee_workload' => [],
+    ];
+    if (hasPermission('view_projects')) {
+        try {
+            require_once __DIR__ . '/project_visibility_helper.php';
+            $healthVis = project_visibility_sql_where_for_projects('p', $userId, $pdo);
+            $healthClause = $healthVis['clause'];
+
+            $overdueStmt = $pdo->prepare(
+                "SELECT COUNT(*) FROM tasks t
+                 INNER JOIN projects p ON p.id = t.project_id
+                 WHERE t.due_date < CURDATE()
+                   AND t.status NOT IN ('Completed', 'Cancelled')
+                   $healthClause"
+            );
+            foreach ($healthVis['binds'] as $bk => $bv) {
+                $overdueStmt->bindValue(':' . $bk, $bv, PDO::PARAM_INT);
+            }
+            $overdueStmt->execute();
+            $dashboardProjectHealth['overdue_tasks'] = (int) ($overdueStmt->fetchColumn() ?: 0);
+
+            $riskStmt = $pdo->prepare(
+                "SELECT COUNT(*) FROM (
+                    SELECT p.id
+                    FROM projects p
+                    LEFT JOIN tasks t ON t.project_id = p.id
+                        AND t.due_date < CURDATE()
+                        AND t.status NOT IN ('Completed', 'Cancelled')
+                    WHERE p.status = 'In Progress'
+                      $healthClause
+                    GROUP BY p.id
+                    HAVING COUNT(t.id) > 0
+                 ) risky_projects"
+            );
+            foreach ($healthVis['binds'] as $bk => $bv) {
+                $riskStmt->bindValue(':' . $bk, $bv, PDO::PARAM_INT);
+            }
+            $riskStmt->execute();
+            $dashboardProjectHealth['projects_at_risk'] = (int) ($riskStmt->fetchColumn() ?: 0);
+
+            $topProjectsStmt = $pdo->prepare(
+                "SELECT p.id, p.name,
+                        COUNT(t.id) AS overdue_tasks
+                 FROM projects p
+                 LEFT JOIN tasks t ON t.project_id = p.id
+                     AND t.due_date < CURDATE()
+                     AND t.status NOT IN ('Completed', 'Cancelled')
+                 WHERE p.status = 'In Progress'
+                   $healthClause
+                 GROUP BY p.id
+                 HAVING overdue_tasks > 0
+                 ORDER BY overdue_tasks DESC, p.name ASC
+                 LIMIT 3"
+            );
+            foreach ($healthVis['binds'] as $bk => $bv) {
+                $topProjectsStmt->bindValue(':' . $bk, $bv, PDO::PARAM_INT);
+            }
+            $topProjectsStmt->execute();
+            foreach ($topProjectsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $dashboardProjectHealth['top_projects'][] = [
+                    'id' => (int) ($row['id'] ?? 0),
+                    'name' => (string) ($row['name'] ?? 'Project'),
+                    'overdue_tasks' => (int) ($row['overdue_tasks'] ?? 0),
+                    'href' => BASE_URL . 'modules/projects/view?id=' . (int) ($row['id'] ?? 0),
+                ];
+            }
+
+            $workloadStmt = $pdo->prepare(
+                "SELECT u.name, COUNT(DISTINCT ta.task_id) AS task_count
+                 FROM task_assignees ta
+                 INNER JOIN tasks t ON t.id = ta.task_id
+                 INNER JOIN projects p ON p.id = t.project_id
+                 INNER JOIN users u ON u.id = ta.user_id
+                 WHERE t.status NOT IN ('Completed', 'Cancelled')
+                   $healthClause
+                 GROUP BY u.id, u.name
+                 ORDER BY task_count DESC, u.name ASC
+                 LIMIT 4"
+            );
+            foreach ($healthVis['binds'] as $bk => $bv) {
+                $workloadStmt->bindValue(':' . $bk, $bv, PDO::PARAM_INT);
+            }
+            $workloadStmt->execute();
+            $maxTasks = 0;
+            foreach ($workloadStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $taskCount = (int) ($row['task_count'] ?? 0);
+                $maxTasks = max($maxTasks, $taskCount);
+                $dashboardProjectHealth['assignee_workload'][] = [
+                    'name' => (string) ($row['name'] ?? 'Assignee'),
+                    'task_count' => $taskCount,
+                ];
+            }
+            foreach ($dashboardProjectHealth['assignee_workload'] as &$assignee) {
+                $assignee['pct'] = $maxTasks > 0
+                    ? (int) round(($assignee['task_count'] / $maxTasks) * 100)
+                    : 0;
+            }
+            unset($assignee);
+
+            $dashboardProjectHealth['available'] = true;
+        } catch (Throwable $exception) {
+        }
+    }
+
+    $dashboardProductionPipeline = [];
+    $dashboardProductionPipelineBottleneck = null;
+    if (!empty($dashboardWorkOrdersPanel['available'])) {
+        try {
+            require_once __DIR__ . '/work_order_dashboard_helper.php';
+            work_order_bootstrap($pdo);
+            $pipelineStages = work_order_dashboard_pipeline($pdo);
+            $maxCount = 0;
+            foreach ($pipelineStages as $stage) {
+                $count = (int) ($stage['count'] ?? 0);
+                $maxCount = max($maxCount, $count);
+                $dashboardProductionPipeline[] = [
+                    'label' => (string) ($stage['label'] ?? ''),
+                    'count' => $count,
+                    'pct' => (int) ($stage['pct'] ?? 0),
+                    'icon' => (string) ($stage['icon'] ?? 'briefcase'),
+                    'href' => BASE_URL . 'modules/work_orders/' . ltrim((string) ($stage['href'] ?? 'list'), '/'),
+                ];
+            }
+            foreach ($dashboardProductionPipeline as $stage) {
+                if ($dashboardProductionPipelineBottleneck === null && (int) ($stage['count'] ?? 0) === $maxCount && $maxCount > 0) {
+                    $dashboardProductionPipelineBottleneck = $stage;
+                }
+            }
+        } catch (Throwable $exception) {
+            $dashboardProductionPipeline = [];
+        }
+    }
+
+    $dashboardPermittedModules = dashboard_permitted_module_tiles();
+    $dashboardShowEmptyWelcome = empty($dashboardPrimaryCards) && empty($dashboardFinanceRows);
+    $dashboardAttentionInbox = dashboard_build_attention_inbox([
+        'dashboardFocusItems' => $dashboardFocusItems,
+        'dashboardPendingApprovals' => $dashboardPendingApprovals,
+        'dashboardDebtors' => $dashboardDebtors,
+        'dashboardWorkOrdersPanel' => $dashboardWorkOrdersPanel,
+        'dashboardReminderAttentionCount' => $dashboardReminderAttentionCount,
+    ]);
 
     // Workspace sidebar (currently unused outside legacy templates) ------------
     $wsScope = trim((string) ($params['scope'] ?? $_GET['scope'] ?? 'home'));
@@ -1661,10 +1984,13 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
         // raw data
         'stats' => $stats,
         'chartData' => $chartData,
+        'dashboardHeroTrend' => $dashboardHeroTrend,
         'dashboardCanViewRevenueChart' => $dashboardCanViewRevenueChart,
         'dashboardPersona' => $dashboardPersona,
         'dashboardPersonaLabel' => $dashboardPersonaLabel,
         'dashboardPanelOrder' => $dashboardPanelOrder,
+        'dashboardMainColumnOrder' => $dashboardMainColumnOrder,
+        'dashboardDateRange' => $dashboardDateRange,
         'recentProjects' => $recentProjects,
         'recentTasks' => $recentTasks,
         'taskSummary' => $taskSummary,
@@ -1711,6 +2037,15 @@ function dashboard_collect_context(PDO $pdo, array $params = []): array
         'dashboardPendingApprovals' => $dashboardPendingApprovals,
         'dashboardMaterialsSnapshot' => $dashboardMaterialsSnapshot,
         'dashboardFinanceRows' => $dashboardFinanceRows,
+        'dashboardWorkspaceTiles' => $dashboardWorkspaceTiles,
+        'dashboardEstimationFunnel' => $dashboardEstimationFunnel,
+        'dashboardEstimationFunnelBottleneck' => $dashboardEstimationFunnelBottleneck,
+        'dashboardProjectHealth' => $dashboardProjectHealth,
+        'dashboardProductionPipeline' => $dashboardProductionPipeline,
+        'dashboardProductionPipelineBottleneck' => $dashboardProductionPipelineBottleneck,
+        'dashboardAttentionInbox' => $dashboardAttentionInbox,
+        'dashboardPermittedModules' => $dashboardPermittedModules,
+        'dashboardShowEmptyWelcome' => $dashboardShowEmptyWelcome,
         'dashboardReceivablesSummary' => $dashboardReceivablesSummary,
         'dashboardTodayDateLabel' => $dashboardTodayDateLabel,
         'dashboardTodayWeekday' => $dashboardTodayWeekday,
@@ -1783,6 +2118,36 @@ function dashboard_fragment_registry(): array
         ],
         'dashboard.ops.kpi' => [
             'view' => 'partials/ops_kpi_grid.php',
+        ],
+        'dashboard.ops.focus' => [
+            'view' => 'partials/ops_focus_strip.php',
+        ],
+        'dashboard.ops.workspace' => [
+            'view' => 'partials/ops_workspace_shortcuts.php',
+        ],
+        'dashboard.ops.hero_trend' => [
+            'view' => 'partials/ops_hero_trend.php',
+        ],
+        'dashboard.ops.attention' => [
+            'view' => 'partials/ops_attention_inbox.php',
+        ],
+        'dashboard.ops.estimation_funnel' => [
+            'view' => 'partials/ops_estimation_funnel.php',
+            'permission' => 'view_estimations',
+        ],
+        'dashboard.ops.project_health' => [
+            'view' => 'partials/ops_project_health.php',
+            'permission' => 'view_projects',
+        ],
+        'dashboard.ops.production_pipeline' => [
+            'view' => 'partials/ops_production_pipeline.php',
+            'permission_any' => ['view_work_orders', 'view_work_order_reports', 'manage_work_orders'],
+        ],
+        'dashboard.ops.empty_welcome' => [
+            'view' => 'partials/ops_empty_welcome.php',
+        ],
+        'dashboard.ops.sidebar' => [
+            'view' => 'partials/ops_sidebar_rail.php',
         ],
         'dashboard.focus.list' => [
             'view' => 'partials/focus_list.php',

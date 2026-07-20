@@ -8,9 +8,11 @@ header('Content-Type: application/json');
 
 try {
     $viewerStats = (int) ($_SESSION['user_id'] ?? 0);
-    $metrics = dashboard_fetch_summary_stats($pdo, $viewerStats);
+    $dateRange = dashboard_resolve_date_range($_GET);
+    $metrics = dashboard_fetch_summary_stats($pdo, $viewerStats, $dateRange);
     echo json_encode([
         'success' => true,
+        'range' => $dateRange['key'] ?? 'mtd',
         'estimations' => (int) ($metrics['estimations']['val'] ?? 0),
         'invoices' => (int) ($metrics['invoices']['val'] ?? 0),
         'unpaid_invoices' => (int) ($metrics['unpaid_invoices']['val'] ?? 0),
