@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
 permissions_require_one_of(['view_estimations']);
 require_once __DIR__ . '/../../includes/estimation_detail_dedup_helper.php';
+require_once __DIR__ . '/../../includes/estimation_view_data_helper.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use Dompdf\Dompdf;
@@ -37,9 +38,8 @@ if (!$est) {
 
 estimation_deduplicate_detail_rows($pdo, $id);
 
-$stmtItems = $pdo->prepare("SELECT * FROM estimation_items WHERE estimation_id = :id ORDER BY id");
-$stmtItems->execute(['id' => $id]);
-$items = $stmtItems->fetchAll();
+$detailBundle = estimation_load_detail_bundle($pdo, $id);
+extract($detailBundle, EXTR_SKIP);
 
 // Render the shared print template into an HTML string. The template wraps
 // browser-only controls (Print / Close buttons) in a `.no-print` block so we

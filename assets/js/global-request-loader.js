@@ -1,11 +1,12 @@
 /**
  * Global animated loader for fetch, jQuery AJAX, and form submissions.
  *
- * Opt out per request:
- *   fetch(url, { skipGlobalLoader: true })
- *   $.ajax({ url, skipGlobalLoader: true })
+ * Shown for POST/PUT/PATCH/DELETE and non-AJAX GET unless skipped.
+ * Background data reads (GET/HEAD, X-Requested-With, fragment polls) are skipped by default.
  *
- * Background polls (alarm feed, session ping, fragment refresh) are skipped automatically.
+ * Opt out:  fetch(url, { skipGlobalLoader: true })
+ * Opt in:   fetch(url, { showGlobalLoader: true })  // force overlay on a GET
+ * Message: fetch(url, { loaderMessage: 'Saving…' })
  */
 (function (global) {
     'use strict';
@@ -25,9 +26,71 @@
         /alarm_feed/i,
         /session_ping/i,
         /\/fragments(?:\?|$|[?&]id=)/i,
+        /notification_action/i,
+        /hero_weather/i,
+        /draft_versions/i,
         /push[/_-]?subscription/i,
         /browser-push/i
     ];
+
+    var READ_METHODS = { GET: true, HEAD: true };
+
+    function resolveUrlString(url, options) {
+        var urlStr = '';
+        if (typeof url === 'string') {
+            urlStr = url;
+        } else if (url && typeof url === 'object' && url.url) {
+            urlStr = url.url;
+        }
+        if (!urlStr && options && options.url) {
+            urlStr = String(options.url);
+        }
+        try {
+            if (urlStr.indexOf('http') !== 0 && global.location && global.location.href) {
+                var parsed = new URL(urlStr, global.location.href);
+                urlStr = parsed.pathname + parsed.search;
+            }
+        } catch (err) {
+            /* use raw string */
+        }
+        return urlStr;
+    }
+
+    function resolveMethod(url, options) {
+        options = options || {};
+        if (options.method) {
+            return String(options.method).toUpperCase();
+        }
+        if (options.type) {
+            return String(options.type).toUpperCase();
+        }
+        if (url && typeof url === 'object' && url.method) {
+            return String(url.method).toUpperCase();
+        }
+        return 'GET';
+    }
+
+    function hasAjaxHeader(input, options) {
+        options = options || {};
+        var headers = options.headers;
+        if (!headers && input && typeof input === 'object' && input.headers) {
+            headers = input.headers;
+        }
+        if (!headers) {
+            return false;
+        }
+        if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+            var value = headers.get('X-Requested-With') || headers.get('x-requested-with');
+            return value === 'XMLHttpRequest';
+        }
+        if (typeof headers === 'object') {
+            return Object.keys(headers).some(function (key) {
+                return key.toLowerCase() === 'x-requested-with'
+                    && String(headers[key]) === 'XMLHttpRequest';
+            });
+        }
+        return false;
+    }
 
     function getRoot() {
         if (!root) {
@@ -43,28 +106,29 @@
         if (options.skipGlobalLoader === true) {
             return true;
         }
+        if (options.showGlobalLoader === true) {
+            return false;
+        }
         if (options.keepalive === true) {
             return true;
         }
-        var urlStr = '';
-        if (typeof url === 'string') {
-            urlStr = url;
-        } else if (url && typeof url === 'object' && url.url) {
-            urlStr = url.url;
-        }
-        if (!urlStr && options && options.url) {
-            urlStr = String(options.url);
-        }
-        try {
-            if (urlStr.indexOf('http') !== 0 && global.location && global.location.href) {
-                urlStr = new URL(urlStr, global.location.href).pathname + new URL(urlStr, global.location.href).search;
-            }
-        } catch (err) {
-            /* use raw string */
-        }
-        return SKIP_URL_RE.some(function (re) {
+
+        var urlStr = resolveUrlString(url, options);
+        if (SKIP_URL_RE.some(function (re) {
             return re.test(urlStr);
-        });
+        })) {
+            return true;
+        }
+
+        var method = resolveMethod(url, options);
+        if (READ_METHODS[method]) {
+            return true;
+        }
+        if (hasAjaxHeader(url, options)) {
+            return true;
+        }
+
+        return false;
     }
 
     function setLabel(message) {
@@ -186,6 +250,7 @@
                 return;
             }
             var message = options.loaderMessage || null;
+            options.__grlTracked = true;
             var previousBeforeSend = options.beforeSend;
             options.beforeSend = function (xhr, settings) {
                 var allow = true;
@@ -193,14 +258,15 @@
                     allow = previousBeforeSend.call(this, xhr, settings);
                 }
                 if (allow === false) {
+                    options.__grlTracked = false;
                     return false;
                 }
-                settings.__grlTracked = true;
                 begin(message);
             };
             var previousComplete = options.complete;
             options.complete = function (xhr, status) {
-                if (settings && settings.__grlTracked) {
+                if (options.__grlTracked) {
+                    options.__grlTracked = false;
                     end();
                 }
                 if (typeof previousComplete === 'function') {
@@ -218,6 +284,9 @@
             if (!form || form.tagName !== 'FORM') {
                 return;
             }
+            if (event.defaultPrevented) {
+                return;
+            }
             if (form.getAttribute('data-skip-global-loader') === '1') {
                 return;
             }
@@ -229,7 +298,7 @@
             }
             var message = form.getAttribute('data-loader-message') || 'Saving…';
             begin(message);
-        }, true);
+        }, false);
 
         global.addEventListener('pagehide', function () {
             activeCount = 0;

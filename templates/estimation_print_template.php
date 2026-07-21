@@ -6,6 +6,13 @@
  * 
  * @param array $est The estimation data array
  * @param array $items The estimation items array
+ * @param array $papers Paper rows
+ * @param array $inkRows Ink colour rows
+ * @param array $binding Binding material rows
+ * @param array $prepress Pre-press labour rows
+ * @param array $press Press labour rows
+ * @param array $finishing Finishing labour rows
+ * @param array $subtotals Section subtotals keyed by section
  * @param array $business Business information array
  * @return string HTML output
  */
@@ -32,6 +39,7 @@ $settings['signature3_title'] = $settings['signature3_title'] ?? 'Date';
 
 require_once __DIR__ . '/../includes/billing_layout_helper.php';
 require_once __DIR__ . '/../includes/pdf_helper.php';
+require_once __DIR__ . '/../includes/estimation_view_data_helper.php';
 $layout = get_merged_billing_layout('quote', isset($billing_layout_variant_override) ? $billing_layout_variant_override : null);
 
 $logoSrc = '';
@@ -50,6 +58,33 @@ $logoPos = (string) ($layout['logo_position'] ?? 'left');
 if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
     $logoPos = 'left';
 }
+
+$papers = $papers ?? [];
+$inkRows = $inkRows ?? [];
+$binding = $binding ?? [];
+$prepress = $prepress ?? [];
+$press = $press ?? [];
+$finishing = $finishing ?? [];
+$subtotals = $subtotals ?? estimation_compute_section_subtotals($items ?? [], $papers, $inkRows, $binding, $prepress, $press, $finishing);
+
+$formatMoney = static function ($value): string {
+    return number_format((float) $value, 2);
+};
+
+$formatQty = static function ($value, int $decimals = 2): string {
+    if ($value === null || $value === '') {
+        return '—';
+    }
+
+    return number_format((float) $value, $decimals);
+};
+
+$renderSectionHeading = static function (string $title, float $subtotal) use ($formatMoney): void {
+    echo '<div class="section-heading">';
+    echo '<span class="section-title">' . htmlspecialchars($title) . '</span>';
+    echo '<span class="section-subtotal">Subtotal: MK ' . $formatMoney($subtotal) . '</span>';
+    echo '</div>';
+};
 
 ?>
 <!DOCTYPE html>
@@ -153,6 +188,103 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
 
         .text-center {
             text-align: center;
+        }
+
+        .section-heading {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin: 24px 0 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .section-title {
+            font-size: 13px;
+            font-weight: bold;
+            color: #2c3e50;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .section-subtotal {
+            font-size: 11px;
+            color: #666;
+        }
+
+        .detail-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 16px;
+            font-size: 10px;
+        }
+
+        .detail-table th {
+            background-color: #ecf0f1;
+            color: #2c3e50;
+            text-align: left;
+            padding: 7px 8px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .detail-table td {
+            padding: 7px 8px;
+            border-bottom: 1px solid #eee;
+            vertical-align: top;
+        }
+
+        .detail-table tr:nth-child(even) td {
+            background-color: #fafafa;
+        }
+
+        .summary-grid {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0 18px;
+            font-size: 11px;
+        }
+
+        .summary-grid td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .summary-grid td:last-child {
+            text-align: right;
+            font-weight: 600;
+        }
+
+        .buildup-box {
+            margin-top: 16px;
+            padding: 12px 14px;
+            border: 1px solid #eee;
+            background: #f9f9f9;
+            font-size: 11px;
+        }
+
+        .buildup-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #2c3e50;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            font-size: 10px;
+        }
+
+        .grand-total-box {
+            margin-top: 14px;
+            padding: 12px 14px;
+            background: #1f7a4d;
+            color: #fff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .grand-total-box span:last-child {
+            font-size: 18px;
         }
 
         /* Totals */
@@ -341,28 +473,19 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
         </div>
 
         <div class="info-box">
-            <div class="info-title">Job Summary</div>
-            <div><strong>Job Description:</strong></div>
-            <div style="font-size: 0.9em; margin-top: 5px;">
-                <?php
-                $jd = (string) ($est['job_description'] ?? '');
-                echo nl2br(htmlspecialchars(substr($jd, 0, 150) . (strlen($jd) > 150 ? '...' : '')));
-                ?>
-            </div>
+            <div class="info-title">Job Description</div>
+            <?php if (!empty($est['job_description'])): ?>
+                <div style="font-size: 0.95em; margin-top: 5px;">
+                    <?php echo nl2br(htmlspecialchars((string) $est['job_description'])); ?>
+                </div>
+            <?php else: ?>
+                <div style="font-size: 0.95em; color: #666; font-style: italic;">No job description recorded.</div>
+            <?php endif; ?>
         </div>
     </div>
-
-    <?php if (strlen((string) ($est['job_description'] ?? '')) > 150): ?>
-        <div class="job-description">
-            <div class="info-title">Full Job Description</div>
-            <div>
-                <?php echo nl2br(htmlspecialchars((string) ($est['job_description'] ?? ''))); ?>
-            </div>
-        </div>
-    <?php endif; ?>
     <?php else: ?>
     <div class="info-section">
-        <div class="info-box" style="width:100%;">
+        <div class="info-box" style="width:48%;">
             <div class="info-title">Estimation For</div>
             <div><strong>
                     <?php echo htmlspecialchars($est['customer_name']); ?>
@@ -378,64 +501,297 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
                 </div>
             <?php endif; ?>
         </div>
+        <div class="info-box" style="width:48%;">
+            <div class="info-title">Job Description</div>
+            <?php if (!empty($est['job_description'])): ?>
+                <div style="font-size: 0.95em; margin-top: 5px;">
+                    <?php echo nl2br(htmlspecialchars((string) $est['job_description'])); ?>
+                </div>
+            <?php else: ?>
+                <div style="font-size: 0.95em; color: #666; font-style: italic;">No job description recorded.</div>
+            <?php endif; ?>
+        </div>
     </div>
     <?php endif; ?>
 
-    <!-- Items Table -->
-    <table class="items-table">
-        <thead>
-            <tr>
-                <th style="width: 5%;">#</th>
-                <th style="width: 55%;">Description</th>
-                <th style="width: 20%;">Type</th>
-                <th style="width: 20%; text-align: right;">Amount</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if (!empty($items)): ?>
-                <?php foreach ($items as $index => $item): ?>
+    <!-- Line items -->
+    <?php if (!empty($items)): ?>
+        <?php $renderSectionHeading('Line items', (float) ($subtotals['items'] ?? 0)); ?>
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>Type</th>
+                    <th class="text-right">Qty</th>
+                    <th class="text-right">Unit price</th>
+                    <th class="text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($items as $row): ?>
                     <tr>
-                        <td>
-                            <?php echo $index + 1; ?>
-                        </td>
-                        <td>
-                            <?php echo nl2br(htmlspecialchars($item['description'] ?? '')); ?>
-                        </td>
-                        <td>
-                            <?php echo htmlspecialchars($item['item_type'] ?? ''); ?>
-                        </td>
-                        <td class="text-right">
-                            <?php echo number_format($item['total_price'], 2); ?>
-                        </td>
+                        <td><?php echo nl2br(htmlspecialchars((string) ($row['description'] ?? '—'))); ?></td>
+                        <td><?php echo htmlspecialchars((string) ($row['item_type'] ?? '—')); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['quantity'] ?? null); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['unit_price'] ?? null); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['total_price'] ?? 0); ?></td>
                     </tr>
                 <?php endforeach; ?>
-            <?php else: ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (!empty($papers)): ?>
+        <?php $renderSectionHeading('Paper', (float) ($subtotals['papers'] ?? 0)); ?>
+        <table class="detail-table">
+            <thead>
                 <tr>
-                    <td colspan="4" class="text-center">No items found</td>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th class="text-right">Grammage</th>
+                    <th>Colour</th>
+                    <th class="text-right">Sheets</th>
+                    <th class="text-right">Rate</th>
+                    <th class="text-right">Total</th>
                 </tr>
-            <?php endif; ?>
+            </thead>
+            <tbody>
+                <?php foreach ($papers as $row): ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars((string) ($row['paper_type'] ?? '—')); ?></td>
+                        <td><?php echo htmlspecialchars((string) ($row['paper_size'] ?? '—')); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['paper_grammage'] ?? 0); ?></td>
+                        <td><?php echo htmlspecialchars((string) ($row['paper_color'] ?? '—')); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['paper_sheets'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['paper_rate'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['paper_total'] ?? 0); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (!empty($inkRows)): ?>
+        <?php $renderSectionHeading('Ink colours', (float) ($subtotals['ink'] ?? 0)); ?>
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Colour</th>
+                    <th class="text-right">Kgs</th>
+                    <th class="text-right">Rate / kg</th>
+                    <th class="text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($inkRows as $row): ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars((string) ($row['colour_name'] ?? '—')); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['kgs'] ?? 0, 4); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['rate'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['total'] ?? 0); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (!empty($binding)): ?>
+        <?php $renderSectionHeading('Binding materials', (float) ($subtotals['binding'] ?? 0)); ?>
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Material</th>
+                    <th>Unit</th>
+                    <th class="text-right">Quantity</th>
+                    <th class="text-right">Rate</th>
+                    <th class="text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($binding as $row): ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars((string) ($row['material_name'] ?? '—')); ?></td>
+                        <td><?php echo htmlspecialchars((string) ($row['unit'] ?? '—')); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['quantity'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['rate'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['total'] ?? 0); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (!empty($prepress)): ?>
+        <?php $renderSectionHeading('Pre-press labour', (float) ($subtotals['prepress'] ?? 0)); ?>
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Labour</th>
+                    <th>Unit</th>
+                    <th class="text-right">Hours</th>
+                    <th class="text-right">Rate / hr</th>
+                    <th class="text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($prepress as $row): ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars((string) ($row['labour_name'] ?? '—')); ?></td>
+                        <td><?php echo htmlspecialchars((string) ($row['unit'] ?? 'hrs')); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['hrs'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['rate'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['total'] ?? 0); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (!empty($press)): ?>
+        <?php $renderSectionHeading('Press labour', (float) ($subtotals['press'] ?? 0)); ?>
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Machine</th>
+                    <th class="text-right">Colours</th>
+                    <th class="text-right">Make-ready hrs</th>
+                    <th class="text-right">Make-ready rate</th>
+                    <th class="text-right">Make-ready total</th>
+                    <th class="text-right">Run hrs</th>
+                    <th class="text-right">Run rate</th>
+                    <th class="text-right">Run total</th>
+                    <th class="text-right">Impressions</th>
+                    <th class="text-right">IPH</th>
+                    <th class="text-right">Machine total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($press as $row): ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars((string) ($row['machine_name'] ?? '—')); ?></td>
+                        <td class="text-right"><?php echo (int) ($row['colours'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['make_ready_hrs'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['make_ready_rate'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['make_ready_total'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['running_hrs'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['running_rate'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['running_total'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo (int) ($row['impressions'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo (int) ($row['iph'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['machine_total'] ?? 0); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (!empty($finishing)): ?>
+        <?php $renderSectionHeading('Finishing labour', (float) ($subtotals['finishing'] ?? 0)); ?>
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Labour</th>
+                    <th>Measure</th>
+                    <th class="text-right">Quantity / Hours</th>
+                    <th class="text-right">Rate</th>
+                    <th class="text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($finishing as $row): ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars((string) ($row['labour_name'] ?? '—')); ?></td>
+                        <td><?php echo htmlspecialchars((string) ($row['measure_type'] ?? '—')); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['quantity'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['rate'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['total'] ?? 0); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (empty($items) && empty($papers) && empty($inkRows) && empty($binding) && empty($prepress) && empty($press) && empty($finishing)): ?>
+        <p class="text-center" style="color:#666;font-style:italic;">No line items or cost breakdown recorded.</p>
+    <?php endif; ?>
+
+
+
+    <!-- Totals -->
+    <div class="section-heading" style="margin-top:28px;">
+        <span class="section-title">Totals</span>
+    </div>
+
+    <table class="summary-grid">
+        <tbody>
+            <?php
+            $totalsRows = [
+                'Line items' => (float) ($subtotals['items'] ?? 0),
+                'Paper' => (float) ($subtotals['papers'] ?? 0),
+                'Ink' => (float) ($subtotals['ink'] ?? 0),
+                'Binding materials' => (float) ($subtotals['binding'] ?? 0),
+                'Pre-press labour' => (float) ($subtotals['prepress'] ?? 0),
+                'Press labour' => (float) ($subtotals['press'] ?? 0),
+                'Finishing labour' => (float) ($subtotals['finishing'] ?? 0),
+            ];
+            foreach ($totalsRows as $label => $value):
+                if ($value <= 0) {
+                    continue;
+                }
+                ?>
+                <tr>
+                    <td><?php echo htmlspecialchars($label); ?></td>
+                    <td>MK <?php echo $formatMoney($value); ?></td>
+                </tr>
+            <?php endforeach; ?>
         </tbody>
     </table>
 
-    <?php if (!empty($layout['show_payment_details'])): ?>
-    <div style="margin: 20px 0; padding: 12px 14px; border: 1px solid #eee; background: #fafafa; font-size: 11px;">
-        <div style="font-weight:bold;margin-bottom:6px;color:#2c3e50;">Payment details</div>
-        <?php if (!empty($settings['bank_name'])): ?><div><strong>Bank:</strong> <?php echo htmlspecialchars($settings['bank_name']); ?></div><?php endif; ?>
-        <?php if (!empty($settings['account_number'])): ?><div><strong>Account:</strong> <?php echo htmlspecialchars($settings['account_number']); ?></div><?php endif; ?>
-        <?php if (!empty($settings['bank_branch'])): ?><div><strong>Branch:</strong> <?php echo htmlspecialchars($settings['bank_branch']); ?></div><?php endif; ?>
-        <?php if (!empty($settings['swift_code'])): ?><div><strong>SWIFT:</strong> <?php echo htmlspecialchars($settings['swift_code']); ?></div><?php endif; ?>
-        <?php if (!empty($settings['iban'])): ?><div><strong>IBAN:</strong> <?php echo htmlspecialchars($settings['iban']); ?></div><?php endif; ?>
-    </div>
+    <?php if (isset($est['subtotal_amount']) || isset($est['vat_percent'])): ?>
+        <div class="buildup-box">
+            <div class="buildup-title">Cost build-up</div>
+            <table class="summary-grid" style="margin:0;">
+                <tbody>
+                    <tr>
+                        <td>Cost subtotal</td>
+                        <td>MK <?php echo $formatMoney($est['subtotal_amount'] ?? 0); ?></td>
+                    </tr>
+                    <?php if ((float) ($est['cost_supervision_amount'] ?? 0) > 0): ?>
+                        <tr>
+                            <td>Overtime / supervision</td>
+                            <td>MK <?php echo $formatMoney($est['cost_supervision_amount']); ?></td>
+                        </tr>
+                    <?php endif; ?>
+                    <?php if ((float) ($est['profit_margin_percent'] ?? 0) > 0): ?>
+                        <tr>
+                            <td>Profit margin</td>
+                            <td><?php echo $formatMoney($est['profit_margin_percent']); ?>%</td>
+                        </tr>
+                        <tr>
+                            <td>Profit amount</td>
+                            <td>MK <?php echo $formatMoney($est['profit_amount'] ?? 0); ?></td>
+                        </tr>
+                    <?php endif; ?>
+                    <tr>
+                        <td><strong>Pre-VAT total</strong></td>
+                        <td><strong>MK <?php echo $formatMoney($est['pre_vat_total'] ?? 0); ?></strong></td>
+                    </tr>
+                    <tr>
+                        <td>VAT rate</td>
+                        <td><?php echo $formatMoney($est['vat_percent'] ?? 0); ?>%</td>
+                    </tr>
+                    <tr>
+                        <td>VAT amount</td>
+                        <td>MK <?php echo $formatMoney($est['vat_amount'] ?? 0); ?></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     <?php endif; ?>
 
-    <!-- Totals -->
-    <div class="totals">
-        <div class="totals-row total">
-            <span>Total Estimated Amount:</span>
-            <span>
-                <?php echo number_format($est['total_amount'], 2); ?>
-            </span>
-        </div>
+    <div class="grand-total-box">
+        <span>Grand Total</span>
+        <span>MK <?php echo $formatMoney($est['total_amount'] ?? 0); ?></span>
     </div>
 
     <!-- Disclaimer/Terms -->

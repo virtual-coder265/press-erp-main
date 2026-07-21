@@ -24,6 +24,7 @@ permissions_require_one_of(['view_estimations']);
 require_once __DIR__ . '/../../libs/EstimationStatusManager.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
 require_once __DIR__ . '/../../includes/estimation_detail_dedup_helper.php';
+require_once __DIR__ . '/../../includes/estimation_view_data_helper.php';
 
 EstimationAuditMigrator::ensure($pdo);
 
@@ -58,54 +59,19 @@ if (!$est) {
 $lastEditedAt   = $est['last_edited_at'] ?? $est['updated_at'] ?? $est['created_at'];
 $lastEditedBy   = $est['last_edited_by_name'] ?? $est['created_by_name'] ?? 'System';
 
-/**
- * Helper: load every related table once with prepared queries. The
- * estimations module stores child rows across several tables (papers, ink
- * colours, binding materials, pre-press, press, finishing). Each query is
- * defensive in case the underlying table has not been created on a fresh
- * install.
- */
-function est_safe_fetch(PDO $pdo, string $sql, array $params = []): array
-{
-    try {
-        $s = $pdo->prepare($sql);
-        $s->execute($params);
-        return $s->fetchAll();
-    } catch (PDOException $e) {
-        return [];
-    }
-}
-
-$items     = est_safe_fetch($pdo, "SELECT * FROM estimation_items             WHERE estimation_id = :id ORDER BY id",                ['id' => $id]);
-$papers    = est_safe_fetch($pdo, "SELECT * FROM estimation_papers            WHERE estimation_id = :id ORDER BY sort_order, id",   ['id' => $id]);
-$inkRows   = est_safe_fetch($pdo, "SELECT * FROM estimation_ink_colours       WHERE estimation_id = :id ORDER BY sort_order, id",   ['id' => $id]);
-$binding   = est_safe_fetch($pdo, "SELECT * FROM estimation_binding_materials WHERE estimation_id = :id ORDER BY sort_order, id",   ['id' => $id]);
-$prepress  = est_safe_fetch($pdo, "SELECT * FROM estimation_prepress_labour   WHERE estimation_id = :id ORDER BY sort_order, id",   ['id' => $id]);
-$press     = est_safe_fetch($pdo, "SELECT * FROM estimation_press_labour      WHERE estimation_id = :id ORDER BY sort_order, id",   ['id' => $id]);
-$finishing = est_safe_fetch($pdo, "SELECT * FROM estimation_finishing_labour  WHERE estimation_id = :id ORDER BY sort_order, id",   ['id' => $id]);
+$detailBundle = estimation_load_detail_bundle($pdo, $id);
+extract($detailBundle, EXTR_SKIP);
 
 // Linked invoices so we can hide the Convert and Delete buttons when one
 // already exists (deletion would otherwise be blocked by the FK anyway).
-$linkedInvoices = est_safe_fetch(
+$linkedInvoices = estimation_safe_fetch(
     $pdo,
-    "SELECT id, invoice_number, status, generated_date FROM invoices WHERE estimation_id = :id ORDER BY id",
+    'SELECT id, invoice_number, status, generated_date FROM invoices WHERE estimation_id = :id ORDER BY id',
     ['id' => $id]
 );
 
 $statusManager = new EstimationStatusManager($pdo);
 $statusHistory = $statusManager->getStatusHistory($id);
-
-// Aggregated subtotals straight from the saved data so the summary always
-// matches what was stored, even if the wizard math drifted.
-$subtotals = [
-    'items'     => array_sum(array_map(fn($r) => (float) $r['total_price'],   $items)),
-    'papers'    => array_sum(array_map(fn($r) => (float) $r['paper_total'],   $papers)),
-    'ink'       => array_sum(array_map(fn($r) => (float) $r['total'],         $inkRows)),
-    'binding'   => array_sum(array_map(fn($r) => (float) $r['total'],         $binding)),
-    'prepress'  => array_sum(array_map(fn($r) => (float) $r['total'],         $prepress)),
-    'press'     => array_sum(array_map(fn($r) => (float) $r['machine_total'], $press)),
-    'finishing' => array_sum(array_map(fn($r) => (float) $r['total'],         $finishing)),
-];
 
 include '../../includes/header.php';
 
