@@ -25,6 +25,11 @@ $pressErpSkipGlobalDateTimePicker = !empty($pressErpSkipGlobalDateTimePicker);
 <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
 <?php endif; ?>
 <link href="<?php echo asset('css/workspace-shell.css'); ?>" rel="stylesheet">
+<?php
+$globalLoaderCssPath = ROOT_PATH . 'assets/css/global-request-loader.css';
+$globalLoaderCssV = file_exists($globalLoaderCssPath) ? (string) filemtime($globalLoaderCssPath) : (string) time();
+?>
+<link href="<?php echo asset('css/global-request-loader.css') . '?v=' . rawurlencode($globalLoaderCssV); ?>" rel="stylesheet">
 <?php if ($includeAppShellCss): ?>
 <?php $appShellCssVersion = file_exists(ROOT_PATH . 'assets/css/app-shell.css') ? (string) filemtime(ROOT_PATH . 'assets/css/app-shell.css') : (string) time(); ?>
 <link href="<?php echo asset('css/app-shell.css') . '?v=' . rawurlencode($appShellCssVersion); ?>" rel="stylesheet">
@@ -35,6 +40,11 @@ $pressErpSkipGlobalDateTimePicker = !empty($pressErpSkipGlobalDateTimePicker);
 <?php if ($includeJquery): ?>
 <script src="<?php echo asset('vendor/js/jquery-3.6.0.min.js'); ?>"></script>
 <?php endif; ?>
+<?php
+$globalLoaderJsPath = ROOT_PATH . 'assets/js/global-request-loader.js';
+$globalLoaderJsV = file_exists($globalLoaderJsPath) ? (string) filemtime($globalLoaderJsPath) : (string) time();
+?>
+<script src="<?php echo asset('js/global-request-loader.js') . '?v=' . rawurlencode($globalLoaderJsV); ?>"></script>
 <script defer src="<?php echo asset('js/workspace-shell.js'); ?>"></script>
 <?php
 $voiceNoteJsPath = ROOT_PATH . 'assets/js/voice-note.js';

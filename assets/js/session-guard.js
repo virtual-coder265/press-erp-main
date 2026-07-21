@@ -155,6 +155,7 @@
         return fetch(config.pingUrl, {
             method: 'GET',
             credentials: 'same-origin',
+            skipGlobalLoader: true,
             headers: { 'Accept': 'application/json' },
         }).then(function (response) {
             if (response.status === 401) {

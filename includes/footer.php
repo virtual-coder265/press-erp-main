@@ -21,6 +21,21 @@
     <!-- GLOBAL TOAST NOTIFICATION -->
     <div id="toastContainer" class="space-y-3"></div>
 
+    <!-- GLOBAL REQUEST LOADER -->
+    <div id="globalRequestLoaderBar" class="global-request-loader__bar" aria-hidden="true"></div>
+    <div id="globalRequestLoader" class="global-request-loader" aria-hidden="true" aria-live="polite" role="status">
+        <div class="global-request-loader__backdrop"></div>
+        <div class="global-request-loader__panel">
+            <div class="global-request-loader__rings" aria-hidden="true">
+                <span class="global-request-loader__ring"></span>
+                <span class="global-request-loader__ring"></span>
+                <span class="global-request-loader__ring"></span>
+                <span class="global-request-loader__dot"></span>
+            </div>
+            <p id="globalRequestLoaderLabel" class="global-request-loader__label">Please wait…</p>
+        </div>
+    </div>
+
     <!-- GLOBAL ACTION MODAL -->
     <div class="todo-modal-overlay action-modal-overlay" id="globalActionModal" role="dialog" aria-modal="true" aria-labelledby="globalActionModalTitle" aria-hidden="true">
         <div class="todo-modal todo-modal--lg action-modal">
@@ -353,6 +368,7 @@
             fetch('<?php echo BASE_URL; ?>modules/reminders/alarm_feed', {
                 method: 'GET',
                 credentials: 'same-origin',
+                skipGlobalLoader: true,
                 headers: {
                     'Accept': 'application/json'
                 }

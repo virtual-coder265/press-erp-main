@@ -782,10 +782,13 @@ $(document).ready(function () {
         const fetchFn = window.SessionGuard ? SessionGuard.authFetch.bind(SessionGuard) : fetch;
         const originalEstId = getDraftEstId();
 
+        const loaderMessage = (saveAction === 'manual' || forceSync) ? 'Saving draft…' : null;
         const request = fetchFn(endpoints.saveDraft, {
             method: 'POST',
             body: payload,
             credentials: 'same-origin',
+            skipGlobalLoader: saveAction === 'autosave' && !forceSync,
+            loaderMessage: loaderMessage,
         })
             .then(function (response) {
                 return response.json().then(function (data) {
@@ -1291,6 +1294,7 @@ $(document).ready(function () {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: body.toString(),
                     credentials: 'same-origin',
+                    loaderMessage: 'Restoring version…',
                 })
                     .then(function (response) { return response.json(); })
                     .then(function (data) {
@@ -2296,6 +2300,7 @@ $(document).ready(function () {
             method: 'POST',
             data: $(this).serialize(),
             dataType: 'json',
+            loaderMessage: 'Saving material…',
             success: function (response) {
                 if (response.status === 'success') {
                     appendBindingMaterialOption(response.material_id, response.name, response.rate, response.unit);
@@ -2322,6 +2327,7 @@ $(document).ready(function () {
             method: 'POST',
             data: $(this).serialize(),
             dataType: 'json',
+            loaderMessage: 'Saving labour task…',
             success: function (response) {
                 if (response.status === 'success') {
                     if (response.section === 'prepress') {

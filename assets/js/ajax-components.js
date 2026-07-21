@@ -217,6 +217,7 @@
         var promise = fetch(url, {
             method: 'GET',
             credentials: 'same-origin',
+            skipGlobalLoader: true,
             headers: {
                 'Accept': 'text/html',
                 'X-Requested-With': 'XMLHttpRequest'

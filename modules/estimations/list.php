@@ -494,7 +494,10 @@ $estimations = $stmt->fetchAll();
         modal.classList.remove('hidden');
         if (typeof window.refreshAppShellIcons === 'function') window.refreshAppShellIcons();
 
-        fetch('draft_versions?est_id=' + encodeURIComponent(estId), { credentials: 'same-origin' })
+        fetch('draft_versions?est_id=' + encodeURIComponent(estId), {
+            credentials: 'same-origin',
+            loaderMessage: 'Loading history…',
+        })
             .then(function (response) { return response.json(); })
             .then(function (data) {
                 if (!data.success) throw new Error(data.message || 'Failed to load history');
@@ -533,6 +536,7 @@ $estimations = $stmt->fetchAll();
                             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                             body: body.toString(),
                             credentials: 'same-origin',
+                            loaderMessage: 'Restoring version…',
                         })
                             .then(function (response) { return response.json(); })
                             .then(function (result) {

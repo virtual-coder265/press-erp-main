@@ -159,6 +159,7 @@
             method: form.method || 'POST',
             body: new FormData(form),
             credentials: 'same-origin',
+            loaderMessage: 'Saving…',
             headers: {
                 'Accept': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest'
