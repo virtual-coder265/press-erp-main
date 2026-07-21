@@ -20,6 +20,8 @@ if ($action === 'quick_add') {
     permissions_require_one_of(['manage_estimations']);
 }
 
+header('Content-Type: application/json; charset=utf-8');
+
 if ($action !== 'quick_add') {
     http_response_code(400);
     echo json_encode(['status' => 'error', 'message' => 'Unsupported action.']);

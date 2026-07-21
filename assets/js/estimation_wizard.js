@@ -2319,9 +2319,6 @@ $(document).ready(function () {
     $('#labourAddForm').submit(function (e) {
         e.preventDefault();
         const section = $('#labour_add_section').val();
-        if (section === 'press') {
-            $('#labour_add_rate_wrap input[name="rate"]').prop('required', false);
-        }
         $.ajax({
             url: '../labour/save',
             method: 'POST',
@@ -2371,8 +2368,6 @@ $(document).ready(function () {
                 }
             },
             error: function () { alert('Connection error. Please try again.'); }
-        }).always(function () {
-            $('#labour_add_rate_wrap input[name="rate"]').prop('required', true);
         });
     });
 
@@ -2635,6 +2630,7 @@ function configureLabourAddModal(section) {
     $('#labour_add_iph_wrap').toggleClass('hidden', !isFinishing);
     $('#labour_add_rate_wrap').toggleClass('hidden', isPress);
     $('#labour_add_press_rates_wrap').toggleClass('hidden', !isPress);
+    $('#labour_add_rate_wrap input[name="rate"]').prop('required', !isPress);
 }
 
 function openLabourAddModal(section) {
