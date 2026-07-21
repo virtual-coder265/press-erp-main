@@ -15,6 +15,7 @@ checkAuth();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
 permissions_require_one_of(['view_estimations']);
+require_once __DIR__ . '/../../includes/estimation_detail_dedup_helper.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use Dompdf\Dompdf;
@@ -33,6 +34,8 @@ if (!$est) {
     http_response_code(404);
     die('Estimation not found.');
 }
+
+estimation_deduplicate_detail_rows($pdo, $id);
 
 $stmtItems = $pdo->prepare("SELECT * FROM estimation_items WHERE estimation_id = :id ORDER BY id");
 $stmtItems->execute(['id' => $id]);

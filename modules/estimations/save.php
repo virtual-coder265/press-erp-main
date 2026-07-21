@@ -19,6 +19,26 @@ function parseCurrency($value) {
     return floatval($cleaned);
 }
 
+/**
+ * Remove all line-detail rows for an estimation so save is idempotent (no duplicate child rows).
+ */
+function estimation_delete_detail_rows(PDO $pdo, int $estId): void
+{
+    $tables = [
+        'estimation_items',
+        'estimation_papers',
+        'estimation_ink_colours',
+        'estimation_binding_materials',
+        'estimation_prepress_labour',
+        'estimation_press_labour',
+        'estimation_finishing_labour',
+    ];
+    foreach ($tables as $table) {
+        $stmt = $pdo->prepare("DELETE FROM {$table} WHERE estimation_id = ?");
+        $stmt->execute([$estId]);
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
         $pdo->beginTransaction();
@@ -134,10 +154,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
             $stmt->execute($updateParams);
             
-            // Delete existing items before re-adding
-            $delStmt = $pdo->prepare("DELETE FROM estimation_items WHERE estimation_id = :id");
-            $delStmt->execute(['id' => $est_id]);
-            
         } else {
             // Create new estimation
             $stmt = $pdo->prepare("INSERT INTO estimations
@@ -173,6 +189,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
             $est_id = $pdo->lastInsertId();
         }
+
+        // Replace all detail rows (prevents duplicate labour/paper rows on re-submit).
+        estimation_delete_detail_rows($pdo, (int) $est_id);
 
         $stmtItem = $pdo->prepare("INSERT INTO estimation_items
             (estimation_id, item_type, description, quantity, unit_price, total_price, details_json)

@@ -4,9 +4,11 @@ checkAuth();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
+require_once __DIR__ . '/../../libs/ProductionLabourMigrator.php';
 require_once __DIR__ . '/../../includes/estimation_draft_restore_helper.php';
 permissions_require_one_of(['manage_estimations']);
 EstimationAuditMigrator::ensure($pdo);
+ProductionLabourMigrator::ensure($pdo);
 
 $est_id = isset($_GET['id']) ? (int)$_GET['id'] : null;
 
@@ -39,6 +41,11 @@ $binding_materials = array_filter($all_materials, fn($m) => strtolower($m['categ
 $binding_cat_id = null;
 $catStmt = $pdo->query("SELECT id FROM material_categories WHERE name='Binding Materials' LIMIT 1");
 $binding_cat_id = $catStmt->fetchColumn();
+
+$all_labour_tasks = ProductionLabourMigrator::fetchTasks($pdo);
+$prepress_labour_tasks = array_values(array_filter($all_labour_tasks, fn($t) => ($t['section'] ?? '') === 'prepress'));
+$press_labour_tasks = array_values(array_filter($all_labour_tasks, fn($t) => ($t['section'] ?? '') === 'press'));
+$finishing_labour_tasks = array_values(array_filter($all_labour_tasks, fn($t) => ($t['section'] ?? '') === 'finishing'));
 
 $draft_resolution = estimation_resolve_draft_fields($pdo, $estimation);
 $draft_data = $draft_resolution['fields'];
@@ -79,9 +86,9 @@ include '../../includes/header.php';
         flex-shrink: 0;
     }
 
-    .draft-info-banner {
-        background: linear-gradient(to right, #e3f2fd, #f3e5f5);
-        border-left: 4px solid #2196f3;
+    .draft-bar {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
     }
 
     @keyframes fadeInOut {
@@ -92,31 +99,57 @@ include '../../includes/header.php';
     }
 </style>
 
-<div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 draft-info-banner">
-    <div class="flex items-start gap-3">
-        <i data-lucide="info" class="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
-        <div>
-            <h3 class="font-semibold text-blue-900">Editing Draft Estimation</h3>
-            <p class="text-sm text-blue-800 mt-1">
-                <strong>ID:</strong> <?php echo htmlspecialchars($estimation['estimation_number']); ?> |
-                <strong>Last auto-saved:</strong> <?php echo $estimation['last_auto_saved'] ? date('M d, Y H:i:s', strtotime($estimation['last_auto_saved'])) : 'Never'; ?>
-            </p>
-            <p class="text-xs text-blue-700 mt-2">Changes auto-save to this device and the server while you work.</p>
-            <?php if ($draft_repaired): ?>
-            <p class="text-xs text-amber-800 mt-2 font-semibold">Wizard fields were rebuilt from saved estimation data because the draft snapshot was empty.</p>
+<div class="draft-bar rounded-lg px-4 py-3 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <span class="font-semibold text-gray-800 truncate">
+                #<?php echo htmlspecialchars($estimation['estimation_number']); ?>
+            </span>
+            <span class="text-gray-500">Step <?php echo (int) ($estimation['draft_step'] ?? 1); ?>/8</span>
+            <?php if ($estimation['last_auto_saved']): ?>
+            <span class="text-gray-500">Saved <?php echo date('M d, H:i', strtotime($estimation['last_auto_saved'])); ?></span>
             <?php endif; ?>
         </div>
+        <?php if ($draft_repaired): ?>
+        <p class="text-xs text-amber-800 mt-1 font-semibold">Fields rebuilt from saved data — draft snapshot was empty.</p>
+        <?php else: ?>
+        <p class="text-xs text-gray-500 mt-1">Changes auto-save to this draft only.</p>
+        <?php endif; ?>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+        <div class="relative" id="draftHistoryWrap">
+            <button type="button" id="draftHistoryToggle"
+                class="inline-flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50 text-sm font-semibold">
+                <i data-lucide="history" class="h-4 w-4" aria-hidden="true"></i>
+                History
+                <i data-lucide="chevron-down" class="h-4 w-4" aria-hidden="true"></i>
+            </button>
+            <div id="draftHistoryPanel"
+                class="hidden absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 overflow-hidden">
+                <div class="px-3 py-2 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Recent versions
+                </div>
+                <div id="draftHistoryList" class="max-h-64 overflow-y-auto">
+                    <p class="px-3 py-4 text-sm text-gray-500">Loading…</p>
+                </div>
+            </div>
+        </div>
+        <button type="button" onclick="openDiscardModal()"
+            class="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg hover:bg-red-100 text-sm font-semibold">
+            <i data-lucide="trash-2" class="h-4 w-4" aria-hidden="true"></i>
+            Discard
+        </button>
     </div>
 </div>
 
 <div class="mb-6">
     <div class="flex items-center gap-2 mb-4">
-        <a href="list" class="text-green-600 hover:underline flex items-center">
-            <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Back to Estimations
+        <a href="list?view=drafts" class="text-green-600 hover:underline flex items-center">
+            <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Back to Drafts
         </a>
     </div>
     <h1 class="text-3xl font-bold text-gray-800">Edit Estimation Draft</h1>
-    <p class="text-gray-600">Make changes to your estimation. All progress is automatically saved.</p>
+    <p class="text-gray-600">Resume and edit this draft. Other drafts are not affected.</p>
 </div>
 
 <div class="bg-white shadow-md rounded-xl p-6 mb-8">
@@ -190,6 +223,7 @@ include '../../includes/header.php';
         endpoints: {
             saveDraft: 'save_draft',
             discardDraft: 'discard_draft',
+            draftVersions: 'draft_versions',
             sessionPing: <?php echo json_encode(BASE_URL . 'modules/auth/session_ping'); ?>,
             reauth: <?php echo json_encode(BASE_URL . 'modules/auth/reauth'); ?>
         }

@@ -129,68 +129,6 @@
                     </div>
                 <?php endforeach; ?>
             </div>
-
-            <!-- Additional Materials -->
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-2xl font-bold text-gray-800">Additional Materials</h2>
-                <div class="flex gap-2">
-                    <button type="button" id="add-material-row"
-                        class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center text-sm shadow-sm">
-                        <i data-lucide="plus" class="mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i> Add Row
-                    </button>
-                    <button type="button" onclick="openQuickAddModal()"
-                        class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition flex items-center text-sm shadow-sm">
-                        <i data-lucide="package" class="mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i> New Material
-                    </button>
-                </div>
-            </div>
-            <div class="overflow-x-auto bg-gray-50 p-4 rounded-xl">
-                <table class="min-w-full" id="materials-table">
-                    <thead>
-                        <tr class="text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
-                            <th class="px-3 py-3">Material</th>
-                            <th class="px-3 py-3">Quantity</th>
-                            <th class="px-3 py-3">Rate (MK)</th>
-                            <th class="px-3 py-3">Total</th>
-                            <th class="px-3 py-3"></th>
-                        </tr>
-                    </thead>
-                    <tbody id="material-rows"></tbody>
-                </table>
-            </div>
-            <template id="material-row-template">
-                <tr class="material-row">
-                    <td class="px-3 py-4">
-                        <select name="material_id[]" class="w-full border-gray-300 rounded-lg material-select">
-                            <option value="">Select Material</option>
-                            <?php foreach ($all_materials as $mat): ?>
-                                <option value="<?php echo $mat['id']; ?>" data-rate="<?php echo $mat['rate']; ?>">
-                                    <?php echo htmlspecialchars($mat['name']); ?>
-                                    (<?php echo htmlspecialchars($mat['unit']); ?>)
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </td>
-                    <td class="px-3 py-4">
-                        <input type="number" step="0.01" name="material_qty[]"
-                            class="w-full border-gray-300 rounded-lg material-qty" placeholder="0.00">
-                    </td>
-                    <td class="px-3 py-4">
-                        <input type="number" step="0.01" name="material_rate[]"
-                            class="w-full border-gray-300 rounded-lg material-rate" placeholder="0.00">
-                    </td>
-                    <td class="px-3 py-4">
-                        <input type="text" name="material_total[]" readonly
-                            class="w-full border-none bg-transparent material-total font-bold text-gray-700"
-                            value="0.00">
-                    </td>
-                    <td class="px-3 py-4 text-right">
-                        <button type="button" class="text-red-500 hover:text-red-700 remove-row">
-                            <i data-lucide="trash-2" class="h-5 w-5" aria-hidden="true"></i>
-                        </button>
-                    </td>
-                </tr>
-            </template>
         </div>
 
         <!-- ===== STEP 3: Paper (Multi-entry) ===== -->
@@ -366,21 +304,19 @@
                 <tr class="binding-row">
                     <td class="px-3 py-3">
                         <select name="binding_mat_id[]" class="w-full border-gray-300 rounded-lg binding-mat-select">
-                            <option value="">-- Select or type below --</option>
+                            <option value="">Select Material</option>
                             <?php foreach ($binding_materials as $bm): ?>
                                 <option value="<?php echo $bm['id']; ?>" data-rate="<?php echo $bm['rate']; ?>"
                                     data-unit="<?php echo htmlspecialchars($bm['unit']); ?>">
                                     <?php echo htmlspecialchars($bm['name']); ?>
+                                    (<?php echo htmlspecialchars($bm['unit']); ?>)
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                        <input type="text" name="binding_mat_name[]"
-                            class="w-full mt-1 border-gray-300 rounded-lg text-sm binding-mat-name"
-                            placeholder="Or enter name manually">
                     </td>
                     <td class="px-3 py-3">
-                        <input type="text" name="binding_mat_unit[]"
-                            class="w-full border-gray-300 rounded-lg binding-mat-unit" placeholder="unit">
+                        <input type="text" name="binding_mat_unit[]" readonly
+                            class="w-full border-gray-300 rounded-lg binding-mat-unit bg-gray-50" placeholder="unit">
                     </td>
                     <td class="px-3 py-3">
                         <input type="number" step="0.01" name="binding_mat_qty[]"
@@ -412,10 +348,16 @@
             <div class="border border-gray-200 rounded-xl p-6 mb-6">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-bold text-gray-700">Pre-press</h3>
-                    <button type="button" id="add-prepress-row"
-                        class="bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 text-sm flex items-center">
-                        <i data-lucide="plus" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Add Pre-press Labour
-                    </button>
+                    <div class="flex gap-2">
+                        <button type="button" id="add-prepress-row"
+                            class="bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 text-sm flex items-center">
+                            <i data-lucide="plus" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Add Task
+                        </button>
+                        <button type="button" onclick="openLabourAddModal('prepress')"
+                            class="bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 text-sm flex items-center">
+                            <i data-lucide="user-plus" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> New Task
+                        </button>
+                    </div>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="min-w-full">
@@ -429,36 +371,7 @@
                                 <th class="px-3 py-2"></th>
                             </tr>
                         </thead>
-                        <tbody id="prepress-rows">
-                            <?php
-                            $prepressItems = ['Design', 'Keying', 'Laying Out', 'Reading', 'Proof Making', 'Film Assembly', 'Platemaking'];
-                            foreach ($prepressItems as $pp): ?>
-                                <tr class="prepress-row">
-                                    <td class="px-3 py-2">
-                                        <input type="text" name="prepress_name[]" value="<?php echo $pp; ?>"
-                                            class="w-full border-gray-300 rounded-lg prepress-name">
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <span class="text-gray-600 font-semibold">hrs</span>
-                                        <input type="hidden" name="prepress_unit[]" value="hrs">
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <input type="number" step="0.01" name="prepress_hrs[]"
-                                            class="w-full border-gray-300 rounded-lg prepress-hrs" placeholder="0">
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <input type="number" step="0.01" name="prepress_rate[]"
-                                            class="w-full border-gray-300 rounded-lg prepress-rate" placeholder="0.00">
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <input type="text" name="prepress_total[]" readonly
-                                            class="w-full border-none bg-transparent prepress-total font-bold text-gray-700"
-                                            value="0.00">
-                                    </td>
-                                    <td class="px-3 py-2"></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
+                        <tbody id="prepress-rows"></tbody>
                     </table>
                 </div>
                 <div class="mt-3 flex justify-between items-center">
@@ -473,10 +386,16 @@
             <div class="border border-gray-200 rounded-xl p-6 mb-6">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-bold text-gray-700">Press</h3>
-                    <button type="button" id="add-machine-btn"
-                        class="bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 text-sm flex items-center">
-                        <i data-lucide="plus" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Add Machine
-                    </button>
+                    <div class="flex gap-2">
+                        <button type="button" id="add-machine-btn"
+                            class="bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 text-sm flex items-center">
+                            <i data-lucide="plus" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Add Machine
+                        </button>
+                        <button type="button" onclick="openLabourAddModal('press')"
+                            class="bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 text-sm flex items-center">
+                            <i data-lucide="user-plus" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> New Machine
+                        </button>
+                    </div>
                 </div>
                 <div id="press-machines" class="space-y-4">
                     <!-- Machine blocks injected by JS -->
@@ -493,10 +412,16 @@
             <div class="border border-gray-200 rounded-xl p-6 mb-6">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-bold text-gray-700">Finishing</h3>
-                    <button type="button" id="add-finishing-row"
-                        class="bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 text-sm flex items-center">
-                        <i data-lucide="plus" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Add Finishing Labour
-                    </button>
+                    <div class="flex gap-2">
+                        <button type="button" id="add-finishing-row"
+                            class="bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 text-sm flex items-center">
+                            <i data-lucide="plus" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Add Task
+                        </button>
+                        <button type="button" onclick="openLabourAddModal('finishing')"
+                            class="bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 text-sm flex items-center">
+                            <i data-lucide="user-plus" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> New Task
+                        </button>
+                    </div>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="min-w-full">
@@ -512,65 +437,7 @@
                                 <th class="px-3 py-2"></th>
                             </tr>
                         </thead>
-                        <tbody id="finishing-rows">
-                            <?php
-                            $finishingItems = [
-                                ['Numbering', 'numbers'],
-                                ['Perforating', 'perfs'],
-                                ['Saddle Stitching', 'books'],
-                                ['Perfect Binding', 'books'],
-                                ['Paper Cutting', 'reams'],
-                                ['Trimming', 'items'],
-                                ['Case Making', 'items'],
-                                ['Gold Blocking', 'items'],
-                            ];
-                            foreach ($finishingItems as [$fname, $fmeasure]): ?>
-                                <tr class="finishing-row">
-                                    <td class="px-3 py-2">
-                                        <input type="text" name="finishing_name[]" value="<?php echo $fname; ?>"
-                                            class="w-full border-gray-300 rounded-lg finishing-name">
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <select name="finishing_measure[]"
-                                            class="w-full border-gray-300 rounded-lg finishing-measure">
-                                            <option value="items" <?php echo $fmeasure === 'items' ? 'selected' : ''; ?>>Items
-                                            </option>
-                                            <option value="books" <?php echo $fmeasure === 'books' ? 'selected' : ''; ?>>Books
-                                            </option>
-                                            <option value="reams" <?php echo $fmeasure === 'reams' ? 'selected' : ''; ?>>Reams
-                                            </option>
-                                            <option value="numbers" <?php echo $fmeasure === 'numbers' ? 'selected' : ''; ?>>
-                                                Numbers</option>
-                                            <option value="perfs" <?php echo $fmeasure === 'perfs' ? 'selected' : ''; ?>>Perfs
-                                            </option>
-                                            <option value="others">Others</option>
-                                        </select>
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <input type="number" name="finishing_impressions[]"
-                                            class="w-full border-gray-300 rounded-lg finishing-impressions" placeholder="0">
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <input type="number" name="finishing_iph[]"
-                                            class="w-full border-gray-300 rounded-lg finishing-iph" placeholder="0">
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <input type="number" step="0.01" name="finishing_hrs[]"
-                                            class="w-full border-gray-300 rounded-lg finishing-hrs" placeholder="0">
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <input type="number" step="0.01" name="finishing_rate[]"
-                                            class="w-full border-gray-300 rounded-lg finishing-rate" placeholder="0.00">
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <input type="text" name="finishing_total[]" readonly
-                                            class="w-full border-none bg-transparent finishing-total font-bold text-gray-700"
-                                            value="0.00">
-                                    </td>
-                                    <td class="px-3 py-2"></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
+                        <tbody id="finishing-rows"></tbody>
                     </table>
                 </div>
                 <div class="mt-3 flex justify-between items-center">

@@ -4,59 +4,12 @@ checkAuthApi();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
+require_once __DIR__ . '/../../includes/estimation_draft_version_helper.php';
 permissions_require_one_of(['manage_estimations']);
 
 EstimationAuditMigrator::ensure($pdo);
 
 header('Content-Type: application/json');
-
-/**
- * Recursively sort associative arrays so client/server hashes match.
- *
- * @param mixed $value
- * @return mixed
- */
-function estimation_draft_canonicalize($value)
-{
-    if (!is_array($value)) {
-        return $value;
-    }
-
-    $isList = array_keys($value) === range(0, count($value) - 1);
-    if (!$isList) {
-        ksort($value);
-    }
-
-    foreach ($value as $key => $child) {
-        $value[$key] = estimation_draft_canonicalize($child);
-    }
-
-    return $value;
-}
-
-/**
- * @param array|string $formData Decoded form fields or raw JSON string
- */
-function estimation_draft_content_hash($formData): string
-{
-    if (is_string($formData)) {
-        $decoded = json_decode($formData, true);
-        $formData = is_array($decoded) ? $decoded : [];
-    }
-    if (!is_array($formData)) {
-        $formData = [];
-    }
-
-    $canonical = estimation_draft_canonicalize($formData);
-    $json = json_encode($canonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-    return hash('sha256', $json !== false ? $json : '');
-}
-
-function estimation_draft_utc_now(): string
-{
-    return gmdate('c');
-}
 
 /**
  * Format a MySQL datetime as UTC ISO-8601 when possible.
@@ -159,6 +112,7 @@ try {
         echo json_encode([
             'success' => true,
             'est_id' => $est_id,
+            'estimation_number' => $est_number,
             'message' => $is_clone ? 'Draft copy saved successfully' : 'Draft saved successfully',
             'timestamp' => estimation_draft_utc_now(),
             'draft_origin' => $draft_origin,
@@ -170,7 +124,7 @@ try {
     }
 
     $existingStmt = $pdo->prepare("
-        SELECT id, draft_data, draft_step, draft_origin, draft_revision, draft_content_hash, last_auto_saved, status
+        SELECT id, estimation_number, draft_data, draft_step, draft_origin, draft_revision, draft_content_hash, last_auto_saved, status
         FROM estimations
         WHERE id = :id AND created_by = :user
         LIMIT 1
@@ -201,6 +155,7 @@ try {
         echo json_encode([
             'success' => true,
             'est_id' => $est_id,
+            'estimation_number' => $existing['estimation_number'] ?? null,
             'message' => 'Draft already up to date',
             'timestamp' => estimation_draft_format_timestamp($existing['last_auto_saved']) ?: estimation_draft_utc_now(),
             'draft_origin' => $existing['draft_origin'] ?: $draft_origin,
@@ -248,6 +203,19 @@ try {
         $newRevision = 1;
     }
 
+    // Archive current snapshot before overwrite (revision history).
+    if (!empty($existing['draft_data'])) {
+        estimation_draft_store_version(
+            $pdo,
+            $est_id,
+            $storedRevision > 0 ? $storedRevision : 1,
+            (string) $existing['draft_data'],
+            (int) ($existing['draft_step'] ?? 1),
+            $storedHash,
+            $user_id
+        );
+    }
+
     $stmt = $pdo->prepare("
         UPDATE estimations
         SET draft_data = :draft,
@@ -292,6 +260,7 @@ try {
     echo json_encode([
         'success' => true,
         'est_id' => $est_id,
+        'estimation_number' => $existing['estimation_number'] ?? null,
         'message' => 'Draft saved successfully',
         'timestamp' => estimation_draft_utc_now(),
         'draft_origin' => $resolvedOrigin,

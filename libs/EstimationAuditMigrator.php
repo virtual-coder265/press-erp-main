@@ -126,6 +126,11 @@ class EstimationAuditMigrator
                    AND `draft_revision` = 0"
             );
 
+            self::ensureDraftVersionsTable($pdo);
+
+            require_once __DIR__ . '/../includes/estimation_detail_dedup_helper.php';
+            estimation_deduplicate_detail_rows($pdo);
+
             require_once __DIR__ . '/MoneySchemaMigrator.php';
             MoneySchemaMigrator::ensure($pdo);
         } catch (Throwable $e) {
@@ -135,6 +140,37 @@ class EstimationAuditMigrator
 
         self::$checked = true;
         return true;
+    }
+
+    /**
+     * Create estimation_draft_versions if missing (keeps last N snapshots per draft).
+     */
+    private static function ensureDraftVersionsTable(PDO $pdo): void
+    {
+        $tableStmt = $pdo->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'estimation_draft_versions'"
+        );
+        if ((int) $tableStmt->fetchColumn() > 0) {
+            return;
+        }
+
+        $pdo->exec(
+            "CREATE TABLE `estimation_draft_versions` (
+                `id` INT NOT NULL AUTO_INCREMENT,
+                `estimation_id` INT NOT NULL,
+                `revision` INT NOT NULL,
+                `draft_data` LONGTEXT NOT NULL,
+                `draft_step` TINYINT NOT NULL DEFAULT 1,
+                `content_hash` CHAR(64) NULL DEFAULT NULL,
+                `saved_at` DATETIME NOT NULL,
+                `saved_by` INT NOT NULL,
+                PRIMARY KEY (`id`),
+                INDEX `idx_est_revision` (`estimation_id`, `revision` DESC),
+                CONSTRAINT `fk_draft_versions_estimation`
+                    FOREIGN KEY (`estimation_id`) REFERENCES `estimations` (`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
     }
 
     /**

@@ -337,7 +337,7 @@ function estimation_draft_fields_from_database(PDO $pdo, array $estimation): arr
 
     $ppStmt = $pdo->prepare('SELECT * FROM estimation_prepress_labour WHERE estimation_id = :id ORDER BY sort_order, id');
     $ppStmt->execute(['id' => $estId]);
-    $prepressByName = estimation_index_rows_by_name($ppStmt->fetchAll(PDO::FETCH_ASSOC), 'labour_name');
+    $prepressRows = $ppStmt->fetchAll(PDO::FETCH_ASSOC);
     $prepressSubtotal = 0.0;
 
     $fields['prepress_name'] = [];
@@ -346,17 +346,24 @@ function estimation_draft_fields_from_database(PDO $pdo, array $estimation): arr
     $fields['prepress_rate'] = [];
     $fields['prepress_total'] = [];
 
-    foreach (ESTIMATION_DEFAULT_PREPRESS_NAMES as $name) {
-        $row = $prepressByName[$name] ?? null;
-        $fields['prepress_name'][] = $name;
+    if ($prepressRows) {
+        foreach ($prepressRows as $row) {
+            $fields['prepress_name'][] = (string) ($row['labour_name'] ?? '');
+            $fields['prepress_unit'][] = (string) ($row['unit'] ?? 'hrs');
+            $fields['prepress_hrs'][] = (string) ($row['hrs'] ?? '');
+            $fields['prepress_rate'][] = number_format((float) ($row['rate'] ?? 0), 2, '.', '');
+            $total = number_format((float) ($row['total'] ?? 0), 2, '.', '');
+            $fields['prepress_total'][] = $total;
+            $prepressSubtotal += (float) ($row['total'] ?? 0);
+        }
+    } else {
+        $fields['prepress_name'][] = '';
         $fields['prepress_unit'][] = 'hrs';
-        $fields['prepress_hrs'][] = $row ? (string) ($row['hrs'] ?? '') : '';
-        $fields['prepress_rate'][] = $row ? number_format((float) ($row['rate'] ?? 0), 2, '.', '') : '';
-        $total = $row ? number_format((float) ($row['total'] ?? 0), 2, '.', '') : '0.00';
-        $fields['prepress_total'][] = $total;
-        $prepressSubtotal += (float) ($row['total'] ?? 0);
+        $fields['prepress_hrs'][] = '';
+        $fields['prepress_rate'][] = '';
+        $fields['prepress_total'][] = '0.00';
     }
-    $fields['cost_prepress'] = (string) $prepressSubtotal;
+    $fields['cost_prepress'] = estimation_wizard_money($prepressSubtotal);
 
     $pressStmt = $pdo->prepare('SELECT * FROM estimation_press_labour WHERE estimation_id = :id ORDER BY sort_order, id');
     $pressStmt->execute(['id' => $estId]);
@@ -400,11 +407,11 @@ function estimation_draft_fields_from_database(PDO $pdo, array $estimation): arr
         $fields['press_run_rate'][] = '';
         $fields['press_run_total'][] = '0.00';
     }
-    $fields['cost_press'] = (string) $pressSubtotal;
+    $fields['cost_press'] = estimation_wizard_money($pressSubtotal);
 
     $finStmt = $pdo->prepare('SELECT * FROM estimation_finishing_labour WHERE estimation_id = :id ORDER BY sort_order, id');
     $finStmt->execute(['id' => $estId]);
-    $finishingByName = estimation_index_rows_by_name($finStmt->fetchAll(PDO::FETCH_ASSOC), 'labour_name');
+    $finishingRows = $finStmt->fetchAll(PDO::FETCH_ASSOC);
     $finishingSubtotal = 0.0;
 
     $fields['finishing_name'] = [];
@@ -415,19 +422,28 @@ function estimation_draft_fields_from_database(PDO $pdo, array $estimation): arr
     $fields['finishing_rate'] = [];
     $fields['finishing_total'] = [];
 
-    foreach (ESTIMATION_DEFAULT_FINISHING_ROWS as [$name, $measure]) {
-        $row = $finishingByName[$name] ?? null;
-        $fields['finishing_name'][] = $name;
-        $fields['finishing_measure'][] = $row ? (string) ($row['measure_type'] ?? $measure) : $measure;
-        $fields['finishing_impressions'][] = $row ? (string) ($row['impressions'] ?? '') : '';
-        $fields['finishing_iph'][] = $row ? (string) ($row['iph'] ?? '') : '';
-        $fields['finishing_hrs'][] = $row ? (string) ($row['hrs'] ?? '') : '';
-        $fields['finishing_rate'][] = $row ? number_format((float) ($row['rate'] ?? 0), 2, '.', '') : '';
-        $total = $row ? number_format((float) ($row['total'] ?? 0), 2, '.', '') : '0.00';
-        $fields['finishing_total'][] = $total;
-        $finishingSubtotal += (float) ($row['total'] ?? 0);
+    if ($finishingRows) {
+        foreach ($finishingRows as $row) {
+            $fields['finishing_name'][] = (string) ($row['labour_name'] ?? '');
+            $fields['finishing_measure'][] = (string) ($row['measure_type'] ?? 'items');
+            $fields['finishing_impressions'][] = (string) ($row['impressions'] ?? '');
+            $fields['finishing_iph'][] = (string) ($row['iph'] ?? '');
+            $fields['finishing_hrs'][] = (string) ($row['hrs'] ?? '');
+            $fields['finishing_rate'][] = number_format((float) ($row['rate'] ?? 0), 2, '.', '');
+            $total = number_format((float) ($row['total'] ?? 0), 2, '.', '');
+            $fields['finishing_total'][] = $total;
+            $finishingSubtotal += (float) ($row['total'] ?? 0);
+        }
+    } else {
+        $fields['finishing_name'][] = '';
+        $fields['finishing_measure'][] = 'items';
+        $fields['finishing_impressions'][] = '';
+        $fields['finishing_iph'][] = '';
+        $fields['finishing_hrs'][] = '';
+        $fields['finishing_rate'][] = '';
+        $fields['finishing_total'][] = '0.00';
     }
-    $fields['cost_finishing'] = (string) $finishingSubtotal;
+    $fields['cost_finishing'] = estimation_wizard_money($finishingSubtotal);
     $fields['cost_labour_total'] = estimation_wizard_money($prepressSubtotal + $pressSubtotal + $finishingSubtotal);
 
     return $fields;

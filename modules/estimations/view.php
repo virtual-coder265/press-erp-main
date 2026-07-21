@@ -23,6 +23,7 @@ require_once __DIR__ . '/../../includes/permissions_helper.php';
 permissions_require_one_of(['view_estimations']);
 require_once __DIR__ . '/../../libs/EstimationStatusManager.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
+require_once __DIR__ . '/../../includes/estimation_detail_dedup_helper.php';
 
 EstimationAuditMigrator::ensure($pdo);
 
@@ -30,6 +31,9 @@ $id = (int) ($_GET['id'] ?? 0);
 if ($id <= 0) {
     redirect('modules/estimations/list');
 }
+
+// Clean legacy duplicate detail rows (from pre-fix double saves) before display.
+estimation_deduplicate_detail_rows($pdo, $id);
 
 // Main estimation row + creator/editor names so the audit notice can render
 // "Last edited on {Date, Time} by {User}" without an extra round-trip.

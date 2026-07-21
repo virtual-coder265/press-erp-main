@@ -3,11 +3,14 @@ require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
-permissions_require_one_of(['manage_materials']);
-
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+
+    if ($action === 'quick_add') {
+        permissions_require_one_of(['manage_materials', 'manage_estimations']);
+    } elseif ($action === 'create' || $action === 'update') {
+        permissions_require_one_of(['manage_materials']);
+    }
 
     if ($action === 'create' || $action === 'update' || $action === 'quick_add') {
         $name = $_POST['name'] ?? '';
@@ -53,7 +56,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
 
             if ($action === 'quick_add') {
-                echo json_encode(['status' => 'success', 'material_id' => $material_id, 'name' => $name, 'rate' => $rate]);
+                echo json_encode([
+                    'status' => 'success',
+                    'material_id' => $material_id,
+                    'name' => $name,
+                    'unit' => $unit,
+                    'rate' => $rate,
+                ]);
                 exit;
             }
 

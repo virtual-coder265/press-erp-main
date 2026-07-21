@@ -249,11 +249,16 @@ $estimations = $stmt->fetchAll();
                     </div>
                     <?php endif; ?>
                 </div>
-                <div class="grid grid-cols-<?php echo $canContinue ? '5' : '4'; ?> gap-2 mt-4">
+                <div class="grid grid-cols-<?php echo $canContinue ? '6' : '4'; ?> gap-2 mt-4">
                     <?php if ($canContinue): ?>
                     <a href="edit_draft?id=<?php echo (int) $est['id']; ?>" class="list-icon-action bg-amber-600 text-white" aria-label="Continue draft" title="Continue">
                         <i data-lucide="play" class="h-4 w-4" aria-hidden="true"></i>
                     </a>
+                    <button type="button"
+                        onclick="openDraftHistoryModal(<?php echo (int) $est['id']; ?>, '<?php echo htmlspecialchars(addslashes($est['estimation_number']), ENT_QUOTES); ?>')"
+                        class="list-icon-action bg-slate-600 text-white" aria-label="Draft history" title="Version history">
+                        <i data-lucide="history" class="h-4 w-4" aria-hidden="true"></i>
+                    </button>
                     <?php endif; ?>
                     <a href="view?id=<?php echo (int) $est['id']; ?>" class="list-icon-action bg-blue-600 text-white" aria-label="View estimation" title="View">
                         <i data-lucide="eye" class="h-4 w-4" aria-hidden="true"></i>
@@ -349,6 +354,11 @@ $estimations = $stmt->fetchAll();
                                     class="text-gray-400 hover:text-amber-600 transition-colors" title="Continue draft" aria-label="Continue draft">
                                     <i data-lucide="play" class="h-5 w-5" aria-hidden="true"></i>
                                 </a>
+                                <button type="button"
+                                    onclick="openDraftHistoryModal(<?php echo (int) $est['id']; ?>, '<?php echo htmlspecialchars(addslashes($est['estimation_number']), ENT_QUOTES); ?>')"
+                                    class="text-gray-400 hover:text-slate-700 transition-colors" title="Version history" aria-label="Draft version history">
+                                    <i data-lucide="history" class="h-5 w-5" aria-hidden="true"></i>
+                                </button>
                                 <?php endif; ?>
                                 <a href="view?id=<?php echo (int) $est['id']; ?>"
                                     class="text-gray-400 hover:text-blue-600 transition-colors" title="View estimation" aria-label="View estimation">
@@ -392,6 +402,35 @@ $estimations = $stmt->fetchAll();
     </div>
 </div>
 
+<?php if ($listView === 'drafts'): ?>
+<div id="draftHistoryModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-6 border w-full max-w-lg shadow-lg rounded-md bg-white">
+        <div class="flex items-start justify-between mb-4">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900">Draft version history</h3>
+                <p class="text-sm text-gray-600 mt-1">
+                    <span id="draftHistoryModalLabel">Draft</span> — up to 4 recent saves
+                </p>
+            </div>
+            <button type="button" onclick="closeDraftHistoryModal()" class="text-gray-400 hover:text-gray-600">
+                <i data-lucide="x" class="h-5 w-5" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div id="draftHistoryModalList" class="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-80 overflow-y-auto">
+            <p class="px-4 py-6 text-sm text-gray-500 text-center">Loading…</p>
+        </div>
+        <div class="flex justify-end gap-2 mt-6">
+            <button type="button" onclick="closeDraftHistoryModal()"
+                class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition">Close</button>
+            <a id="draftHistoryContinueLink" href="#"
+                class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition font-semibold">
+                Continue editing
+            </a>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <!-- Delete confirmation modal (single instance reused for every row) -->
 <div id="deleteModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
     <div class="relative top-20 mx-auto p-6 border w-full max-w-md shadow-lg rounded-md bg-white">
@@ -430,9 +469,102 @@ $estimations = $stmt->fetchAll();
     function closeDeleteModal() {
         document.getElementById('deleteModal').classList.add('hidden');
     }
+
+    <?php if ($listView === 'drafts'): ?>
+    let draftHistoryTargetId = null;
+
+    function formatListDraftTime(savedAt) {
+        if (!savedAt) return 'Unknown time';
+        const dt = new Date(String(savedAt).replace(' ', 'T'));
+        if (isNaN(dt.getTime())) return savedAt;
+        return dt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function openDraftHistoryModal(estId, estNumber) {
+        draftHistoryTargetId = estId;
+        const modal = document.getElementById('draftHistoryModal');
+        const listEl = document.getElementById('draftHistoryModalList');
+        const labelEl = document.getElementById('draftHistoryModalLabel');
+        const continueLink = document.getElementById('draftHistoryContinueLink');
+        if (!modal || !listEl) return;
+
+        labelEl.textContent = estNumber || ('Draft #' + estId);
+        continueLink.href = 'edit_draft?id=' + encodeURIComponent(estId);
+        listEl.innerHTML = '<p class="px-4 py-6 text-sm text-gray-500 text-center">Loading…</p>';
+        modal.classList.remove('hidden');
+        if (typeof window.refreshAppShellIcons === 'function') window.refreshAppShellIcons();
+
+        fetch('draft_versions?est_id=' + encodeURIComponent(estId), { credentials: 'same-origin' })
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (!data.success) throw new Error(data.message || 'Failed to load history');
+                const versions = data.versions || [];
+                if (!versions.length) {
+                    listEl.innerHTML = '<p class="px-4 py-6 text-sm text-gray-500 text-center">No saved versions yet.</p>';
+                    return;
+                }
+                listEl.innerHTML = versions.map(function (item) {
+                    const label = item.is_current ? 'Current' : (item.label || ('rev ' + item.revision));
+                    const time = formatListDraftTime(item.saved_at);
+                    const step = item.draft_step || 1;
+                    let action = item.is_current
+                        ? '<span class="text-xs text-gray-400">Active</span>'
+                        : '<button type="button" class="text-xs font-semibold text-amber-700 hover:text-amber-900" data-revision="' + item.revision + '">Restore &amp; open</button>';
+                    return '<div class="flex items-center justify-between gap-3 px-4 py-3">' +
+                        '<div><p class="text-sm font-semibold text-gray-800">' + label + '</p>' +
+                        '<p class="text-xs text-gray-500">' + time + ' · Step ' + step + '</p></div>' +
+                        action + '</div>';
+                }).join('');
+
+                listEl.querySelectorAll('button[data-revision]').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        const revision = btn.getAttribute('data-revision');
+                        if (!revision || !draftHistoryTargetId) return;
+                        if (!confirm('Restore this version and open the draft editor? Current unsaved work in the editor will be replaced.')) {
+                            return;
+                        }
+                        btn.disabled = true;
+                        const body = new URLSearchParams();
+                        body.append('action', 'restore');
+                        body.append('est_id', String(draftHistoryTargetId));
+                        body.append('revision', revision);
+                        fetch('draft_versions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: body.toString(),
+                            credentials: 'same-origin',
+                        })
+                            .then(function (response) { return response.json(); })
+                            .then(function (result) {
+                                if (!result.success) throw new Error(result.message || 'Restore failed');
+                                window.location.href = 'edit_draft?id=' + encodeURIComponent(draftHistoryTargetId);
+                            })
+                            .catch(function (err) {
+                                alert('Could not restore version: ' + err.message);
+                                btn.disabled = false;
+                            });
+                    });
+                });
+            })
+            .catch(function (err) {
+                listEl.innerHTML = '<p class="px-4 py-6 text-sm text-red-600 text-center">' + (err.message || 'Could not load history') + '</p>';
+            });
+    }
+
+    function closeDraftHistoryModal() {
+        const modal = document.getElementById('draftHistoryModal');
+        if (modal) modal.classList.add('hidden');
+        draftHistoryTargetId = null;
+    }
+    <?php endif; ?>
+
     document.addEventListener('DOMContentLoaded', () => {
         const m = document.getElementById('deleteModal');
         m.addEventListener('click', (e) => { if (e.target === m) closeDeleteModal(); });
+        <?php if ($listView === 'drafts'): ?>
+        const hm = document.getElementById('draftHistoryModal');
+        if (hm) hm.addEventListener('click', (e) => { if (e.target === hm) closeDraftHistoryModal(); });
+        <?php endif; ?>
         if (typeof window.refreshAppShellIcons === 'function') window.refreshAppShellIcons();
     });
 </script>

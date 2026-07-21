@@ -4,8 +4,10 @@ checkAuth();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
+require_once __DIR__ . '/../../libs/ProductionLabourMigrator.php';
 permissions_require_one_of(['manage_estimations']);
 EstimationAuditMigrator::ensure($pdo);
+ProductionLabourMigrator::ensure($pdo);
 
 // Fetch all materials with their latest rates
 $stmt = $pdo->query("
@@ -27,37 +29,24 @@ $binding_cat_id = null;
 $catStmt = $pdo->query("SELECT id FROM material_categories WHERE name='Binding Materials' LIMIT 1");
 $binding_cat_id = $catStmt->fetchColumn();
 
-// Fetch existing drafts for the current user
-$stmt = $pdo->prepare("
-    SELECT id, estimation_number, customer_name, job_description, draft_step, last_auto_saved, created_at
-    FROM estimations
+$all_labour_tasks = ProductionLabourMigrator::fetchTasks($pdo);
+$prepress_labour_tasks = array_values(array_filter($all_labour_tasks, fn($t) => ($t['section'] ?? '') === 'prepress'));
+$press_labour_tasks = array_values(array_filter($all_labour_tasks, fn($t) => ($t['section'] ?? '') === 'press'));
+$finishing_labour_tasks = array_values(array_filter($all_labour_tasks, fn($t) => ($t['section'] ?? '') === 'finishing'));
+
+// Count in-progress drafts for subtle header link (resume happens on list/edit_draft)
+$draftCountStmt = $pdo->prepare("
+    SELECT COUNT(*) FROM estimations
     WHERE created_by = :user AND status = 'Draft'
-    ORDER BY last_auto_saved DESC, created_at DESC
-    LIMIT 5
+      AND draft_data IS NOT NULL AND draft_data != ''
 ");
-$stmt->execute(['user' => $_SESSION['user_id']]);
-$existing_drafts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$draftCountStmt->execute(['user' => $_SESSION['user_id']]);
+$draft_count = (int) $draftCountStmt->fetchColumn();
 
 $user_email = '';
 $userStmt = $pdo->prepare('SELECT email FROM users WHERE id = :id LIMIT 1');
 $userStmt->execute(['id' => $_SESSION['user_id']]);
 $user_email = (string) ($userStmt->fetchColumn() ?: '');
-
-$cookie_resume_draft = null;
-if (!empty($_COOKIE['est_draft_ptr'])) {
-    $ptr = json_decode($_COOKIE['est_draft_ptr'], true);
-    $ptrEstId = isset($ptr['estId']) ? (int) $ptr['estId'] : 0;
-    if ($ptrEstId > 0) {
-        $resumeStmt = $pdo->prepare("
-            SELECT id, estimation_number, customer_name, draft_step, last_auto_saved
-            FROM estimations
-            WHERE id = :id AND created_by = :user AND status = 'Draft'
-            LIMIT 1
-        ");
-        $resumeStmt->execute(['id' => $ptrEstId, 'user' => $_SESSION['user_id']]);
-        $cookie_resume_draft = $resumeStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-    }
-}
 
 include '../../includes/header.php';
 ?>
@@ -102,68 +91,20 @@ include '../../includes/header.php';
 </style>
 
 <div class="mb-6">
-    <div class="flex items-center gap-2 mb-4">
+    <div class="flex items-center justify-between gap-4 mb-4">
         <a href="list" class="text-green-600 hover:underline flex items-center">
             <i data-lucide="arrow-left" class="mr-1 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Back to Estimations
         </a>
+        <?php if ($draft_count > 0): ?>
+        <p class="text-sm text-gray-500 shrink-0">
+            <?php echo $draft_count; ?> draft<?php echo $draft_count === 1 ? '' : 's'; ?> in progress ·
+            <a href="list?view=drafts" class="text-green-600 hover:underline font-medium">View drafts</a>
+        </p>
+        <?php endif; ?>
     </div>
     <h1 class="text-3xl font-bold text-gray-800">New Estimation</h1>
-    <p class="text-gray-600">Complete the steps below to generate a cost estimation.</p>
+    <p id="estimation-page-subtitle" class="text-gray-600">Complete the steps below to generate a cost estimation.</p>
 </div>
-
-<!-- Existing Drafts Section -->
-<?php if (!empty($existing_drafts)): ?>
-<div class="bg-amber-50 border border-amber-200 rounded-lg p-6 mb-8">
-    <div class="flex items-start gap-3 mb-4">
-        <i data-lucide="file-text" class="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5"></i>
-        <div>
-            <h3 class="font-semibold text-amber-900">Resume Your Draft</h3>
-            <p class="text-sm text-amber-800 mt-1">You have <?php echo count($existing_drafts); ?> unsaved draft(s) in progress.</p>
-        </div>
-    </div>
-    <div class="space-y-2">
-        <?php foreach ($existing_drafts as $draft): ?>
-            <div class="flex items-center justify-between bg-white p-3 rounded-lg border border-amber-100">
-                <div class="flex-1 min-w-0">
-                    <p class="font-semibold text-gray-800 truncate">
-                        <?php echo htmlspecialchars($draft['customer_name'] ?? 'Unnamed'); ?> 
-                        <span class="text-xs text-gray-500 font-normal">#<?php echo htmlspecialchars($draft['estimation_number']); ?></span>
-                    </p>
-                    <p class="text-xs text-gray-600 truncate">
-                        Step <?php echo $draft['draft_step']; ?> 
-                        <?php if ($draft['last_auto_saved']): ?>
-                            • Last saved: <?php echo date('M d H:i', strtotime($draft['last_auto_saved'])); ?>
-                        <?php endif; ?>
-                    </p>
-                </div>
-                <a href="edit_draft?id=<?php echo $draft['id']; ?>"
-                    class="ml-2 bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition text-sm font-semibold whitespace-nowrap">
-                    Continue
-                </a>
-            </div>
-        <?php endforeach; ?>
-    </div>
-</div>
-<?php endif; ?>
-
-<?php if ($cookie_resume_draft): ?>
-<div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-    <div>
-        <p class="font-semibold text-blue-900">Resume your last session</p>
-        <p class="text-sm text-blue-800">
-            <?php echo htmlspecialchars($cookie_resume_draft['customer_name'] ?? 'Unnamed'); ?>
-            — step <?php echo (int) ($cookie_resume_draft['draft_step'] ?? 1); ?>
-            <?php if (!empty($cookie_resume_draft['last_auto_saved'])): ?>
-                (saved <?php echo date('M d H:i', strtotime($cookie_resume_draft['last_auto_saved'])); ?>)
-            <?php endif; ?>
-        </p>
-    </div>
-    <a href="edit_draft?id=<?php echo (int) $cookie_resume_draft['id']; ?>"
-        class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm font-semibold whitespace-nowrap text-center">
-        Resume last draft
-    </a>
-</div>
-<?php endif; ?>
 
 <!-- Progress Steps -->
 <div class="bg-white shadow-md rounded-xl p-6 mb-8">
@@ -208,6 +149,7 @@ include '../../includes/header.php';
         userId: <?php echo (int) $_SESSION['user_id']; ?>,
         userEmail: <?php echo json_encode($user_email); ?>,
         baseUrl: <?php echo json_encode(BASE_URL); ?>,
+        freshStart: true,
         draftMode: false,
         draftEstId: null,
         draftData: null,

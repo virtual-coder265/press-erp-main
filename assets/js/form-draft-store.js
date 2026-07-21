@@ -230,6 +230,46 @@
         setCookie(COOKIE_NAME, '', 0);
     }
 
+    function sessionStorageKey(key) {
+        return 'form_draft_session:' + key;
+    }
+
+    function saveSession(key, snapshot) {
+        try {
+            sessionStorage.setItem(sessionStorageKey(key), JSON.stringify(snapshot));
+        } catch (err) {
+            console.warn('FormDraftStore sessionStorage save failed', err);
+        }
+        return Promise.resolve(snapshot);
+    }
+
+    function saveSessionSync(key, snapshot) {
+        try {
+            sessionStorage.setItem(sessionStorageKey(key), JSON.stringify(snapshot));
+        } catch (err) {
+            console.warn('FormDraftStore sessionStorage save failed', err);
+        }
+        return snapshot;
+    }
+
+    function loadSession(key) {
+        try {
+            const raw = sessionStorage.getItem(sessionStorageKey(key));
+            return Promise.resolve(raw ? JSON.parse(raw) : null);
+        } catch (err) {
+            return Promise.resolve(null);
+        }
+    }
+
+    function removeSession(key) {
+        try {
+            sessionStorage.removeItem(sessionStorageKey(key));
+        } catch (err) {
+            /* best-effort */
+        }
+        return Promise.resolve();
+    }
+
     global.FormDraftStore = {
         SCHEMA_VERSION: SCHEMA_VERSION,
         COOKIE_NAME: COOKIE_NAME,
@@ -238,6 +278,10 @@
         load: load,
         loadNewest: loadNewest,
         remove: remove,
+        saveSession: saveSession,
+        saveSessionSync: saveSessionSync,
+        loadSession: loadSession,
+        removeSession: removeSession,
         setPointer: setPointer,
         getPointer: getPointer,
         clearPointer: clearPointer,

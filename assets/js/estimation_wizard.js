@@ -20,6 +20,7 @@ $(document).ready(function () {
     // =====================
     const wizardConfig = window.estimationWizardConfig || {};
     const draftMode = wizardConfig.draftMode || window.draftMode || false;
+    const freshStart = wizardConfig.freshStart === true;
     const autoSaveInterval = 15000;
     let autoSaveTimer = null;
     let lastAutoSaveTime = null;
@@ -35,8 +36,8 @@ $(document).ready(function () {
     let conflictModalOpen = false;
     let logoutFlushInProgress = false;
     let autosaveInFlight = null;
-    const DEFAULT_PREPRESS_ROWS = 7;
-    const DEFAULT_FINISHING_ROWS = 8;
+    const DEFAULT_PREPRESS_ROWS = 1;
+    const DEFAULT_FINISHING_ROWS = 1;
     const endpoints = wizardConfig.endpoints || {
         saveDraft: 'save_draft',
         discardDraft: 'discard_draft',
@@ -52,14 +53,63 @@ $(document).ready(function () {
 
     function getDraftStorageKey(estId) {
         const userId = wizardConfig.userId || 'anonymous';
-        if (estId === null) {
-            return 'estimation_draft:' + userId + ':active';
-        }
         const id = estId !== undefined ? estId : getDraftEstId();
         if (id) {
             return 'estimation_draft:' + userId + ':' + id;
         }
+        if (freshStart) {
+            return 'estimation_draft:' + userId + ':session';
+        }
+        if (estId === null) {
+            return 'estimation_draft:' + userId + ':active';
+        }
         return 'estimation_draft:' + userId + ':active';
+    }
+
+    function shouldSetDraftPointer() {
+        return !!getDraftEstId() || !freshStart;
+    }
+
+    function persistToLocalStore(key, snapshot, pendingSync) {
+        const estId = getDraftEstId();
+        if (freshStart && !estId) {
+            return FormDraftStore.saveSession(key, snapshot).then(function () {
+                if (shouldSetDraftPointer()) {
+                    FormDraftStore.setPointer({
+                        estId: snapshot.meta.estId,
+                        step: snapshot.meta.step,
+                        updatedAt: snapshot.meta.updatedAt,
+                        userId: wizardConfig.userId,
+                    });
+                }
+                updateLocalDraftStatus(pendingSync);
+            });
+        }
+        const saves = [FormDraftStore.save(key, snapshot)];
+        if (estId) {
+            saves.push(FormDraftStore.save(getDraftStorageKey(estId), snapshot));
+        }
+        return Promise.all(saves).then(function () {
+            if (shouldSetDraftPointer()) {
+                FormDraftStore.setPointer({
+                    estId: snapshot.meta.estId,
+                    step: snapshot.meta.step,
+                    updatedAt: snapshot.meta.updatedAt,
+                    userId: wizardConfig.userId,
+                });
+            }
+            updateLocalDraftStatus(pendingSync);
+        });
+    }
+
+    function updateLocalDraftStatus(pendingSync) {
+        if (pendingSync || !navigator.onLine) {
+            updateDraftStatus('Saved on this device · waiting to sync', 'warn');
+        } else if (localBaseRevision > 0) {
+            updateDraftStatus('Synced · rev ' + localBaseRevision, 'ok');
+        } else {
+            updateDraftStatus('Saved on this device', 'ok');
+        }
     }
 
     function getDraftStorageKeys() {
@@ -67,6 +117,9 @@ $(document).ready(function () {
         const estId = getDraftEstId();
         if (estId && (draftMode || wizardConfig.draftEstId)) {
             return [getDraftStorageKey(estId)];
+        }
+        if (freshStart && !estId) {
+            return [getDraftStorageKey()];
         }
         const keys = [
             getDraftStorageKey(null),
@@ -83,9 +136,14 @@ $(document).ready(function () {
             return Promise.resolve();
         }
         const removals = getDraftStorageKeys().map(function (key) {
+            if (freshStart && !getDraftEstId() && key.indexOf(':session') !== -1) {
+                return FormDraftStore.removeSession(key);
+            }
             return FormDraftStore.remove(key);
         });
-        FormDraftStore.clearPointer();
+        if (shouldSetDraftPointer()) {
+            FormDraftStore.clearPointer();
+        }
         return Promise.all(removals);
     }
 
@@ -99,6 +157,9 @@ $(document).ready(function () {
         if (id && window.FormDraftStore && String(previousId) !== String(id)) {
             const snapshot = buildSnapshot(pendingServerSync);
             FormDraftStore.saveSync(getDraftStorageKey(id), snapshot);
+            if (freshStart && previousId == null) {
+                FormDraftStore.removeSession(getDraftStorageKey()).catch(function () { /* best-effort */ });
+            }
         }
     }
 
@@ -120,7 +181,6 @@ $(document).ready(function () {
         return {
             paperTypes: $('input[name="paper_type[]"]').map(function () { return $(this).val(); }).get(),
             inkColours: $('input[name="ink_colour[]"]').map(function () { return $(this).val(); }).get(),
-            materialRowCount: $('#material-rows .material-row').length,
             bindingRowCount: $('#binding-rows .binding-row').length,
             machineBlockCount: $('.machine-block').length,
             prepressRowCount: $('#prepress-rows .prepress-row').length,
@@ -172,6 +232,48 @@ $(document).ready(function () {
         }
     }
 
+    function migrateExtraMaterialsToBinding(fields) {
+        if (!fields || !Array.isArray(fields.material_id) || fields.material_id.length <= 4) {
+            return fields;
+        }
+
+        const stdCount = 4;
+        const extraIds = fields.material_id.slice(stdCount);
+        const extraQty = (Array.isArray(fields.material_qty) ? fields.material_qty : []).slice(stdCount);
+        const extraRate = (Array.isArray(fields.material_rate) ? fields.material_rate : []).slice(stdCount);
+        const extraTotal = (Array.isArray(fields.material_total) ? fields.material_total : []).slice(stdCount);
+
+        fields.material_id = fields.material_id.slice(0, stdCount);
+        if (Array.isArray(fields.material_qty)) {
+            fields.material_qty = fields.material_qty.slice(0, stdCount);
+        }
+        if (Array.isArray(fields.material_rate)) {
+            fields.material_rate = fields.material_rate.slice(0, stdCount);
+        }
+        if (Array.isArray(fields.material_total)) {
+            fields.material_total = fields.material_total.slice(0, stdCount);
+        }
+
+        ['binding_mat_id', 'binding_mat_unit', 'binding_mat_qty', 'binding_mat_rate', 'binding_mat_total'].forEach(function (key) {
+            if (!Array.isArray(fields[key])) {
+                fields[key] = fields[key] !== undefined && fields[key] !== '' ? [String(fields[key])] : [];
+            }
+        });
+
+        extraIds.forEach(function (id, index) {
+            if (!id) {
+                return;
+            }
+            fields.binding_mat_id.push(String(id));
+            fields.binding_mat_unit.push('');
+            fields.binding_mat_qty.push(extraQty[index] !== undefined ? String(extraQty[index]) : '');
+            fields.binding_mat_rate.push(extraRate[index] !== undefined ? String(extraRate[index]) : '');
+            fields.binding_mat_total.push(extraTotal[index] !== undefined ? String(extraTotal[index]) : '0.00');
+        });
+
+        return fields;
+    }
+
     function applyFields(fields) {
         if (!fields || typeof fields !== 'object') {
             return;
@@ -204,11 +306,6 @@ $(document).ready(function () {
                 addInkColourRow(colour);
             });
 
-        $('#material-rows').empty();
-        for (let i = 0; i < (structure.materialRowCount || 1); i++) {
-            addMaterialRow();
-        }
-
         $('#binding-rows').empty();
         for (let i = 0; i < (structure.bindingRowCount || 1); i++) {
             addBindingRow();
@@ -219,41 +316,124 @@ $(document).ready(function () {
             addMachineBlock();
         }
 
+        $('#prepress-rows').empty();
         const prepressTarget = structure.prepressRowCount || DEFAULT_PREPRESS_ROWS;
-        while ($('#prepress-rows .prepress-row').length < prepressTarget) {
-            const tmpl = document.getElementById('prepress-row-template');
-            if (tmpl) {
-                $('#prepress-rows').append(tmpl.content.cloneNode(true));
-            } else {
-                break;
-            }
+        for (let i = 0; i < prepressTarget; i++) {
+            addPrepressRow();
         }
 
+        $('#finishing-rows').empty();
         const finishingTarget = structure.finishingRowCount || DEFAULT_FINISHING_ROWS;
-        while ($('#finishing-rows .finishing-row').length < finishingTarget) {
-            const tmpl = document.getElementById('finishing-row-template');
-            if (tmpl) {
-                $('#finishing-rows').append(tmpl.content.cloneNode(true));
-            } else {
-                break;
-            }
+        for (let i = 0; i < finishingTarget; i++) {
+            addFinishingRow();
         }
 
         refreshLucide();
+    }
+
+    /**
+     * Recompute row-level and section totals from restored field values (draft resume).
+     */
+    function recalculateAllSectionTotals() {
+        $('#prepress-rows .prepress-row').each(function () {
+            const row = $(this);
+            const hrs = parseFloat(row.find('.prepress-hrs').val()) || 0;
+            const rate = parseFloat(row.find('.prepress-rate').val()) || 0;
+            row.find('.prepress-total').val(formatCurrency(hrs * rate));
+        });
+        let prepressSum = 0;
+        $('.prepress-total').each(function () {
+            prepressSum += parseInkMoney($(this).val());
+        });
+        $('#cost_prepress').val(formatCurrency(prepressSum));
+
+        $('.machine-block').each(function () {
+            const block = $(this);
+            const mrHrs = parseFloat(block.find('.press-mr-hrs').val()) || 0;
+            const mrRate = parseFloat(block.find('.press-mr-rate').val()) || 0;
+            block.find('.press-mr-total').val(formatCurrency(mrHrs * mrRate));
+
+            const impressions = parseFloat(block.find('.press-impressions').val()) || 0;
+            const iph = parseFloat(block.find('.press-iph').val()) || 0;
+            let runHrs = iph > 0 ? impressions / iph : (parseFloat(block.find('.press-run-hrs').val()) || 0);
+            if (iph > 0) {
+                block.find('.press-run-hrs').val(runHrs.toFixed(2));
+            }
+            const runRate = parseFloat(block.find('.press-run-rate').val()) || 0;
+            block.find('.press-run-total').val(formatCurrency(runHrs * runRate));
+        });
+        let pressSum = 0;
+        $('.press-mr-total, .press-run-total').each(function () {
+            pressSum += parseInkMoney($(this).val());
+        });
+        $('#cost_press').val(formatCurrency(pressSum));
+
+        $('#finishing-rows .finishing-row').each(function () {
+            const row = $(this);
+            const impressions = parseFloat(row.find('.finishing-impressions').val()) || 0;
+            const iph = parseFloat(row.find('.finishing-iph').val()) || 0;
+            const rate = parseFloat(row.find('.finishing-rate').val()) || 0;
+            let hrs = iph > 0 ? impressions / iph : (parseFloat(row.find('.finishing-hrs').val()) || 0);
+            if (iph > 0) {
+                row.find('.finishing-hrs').val(hrs.toFixed(2));
+            }
+            row.find('.finishing-total').val(formatCurrency(hrs * rate));
+        });
+        let finishingSum = 0;
+        $('.finishing-total').each(function () {
+            finishingSum += parseInkMoney($(this).val());
+        });
+        $('#cost_finishing').val(formatCurrency(finishingSum));
+
+        $('#binding-rows .binding-row').each(function () {
+            const row = $(this);
+            const qty = parseFloat(row.find('.binding-mat-qty').val()) || 0;
+            const rate = parseFloat(row.find('.binding-mat-rate').val()) || 0;
+            row.find('.binding-mat-total').val(formatCurrency(qty * rate));
+        });
+        let bindingSum = 0;
+        $('.binding-mat-total').each(function () {
+            bindingSum += parseInkMoney($(this).val());
+        });
+        $('#cost_binding').val(formatCurrency(bindingSum));
+
+        $('.std-calc-qty').each(function () {
+            const grid = $(this).closest('.grid');
+            const qty = parseFloat($(this).val()) || 0;
+            const rate = parseFloat(grid.find('.std-calc-rate').val()) || 0;
+            grid.find('.std-calc-total').val(formatCurrency(qty * rate));
+        });
+
+        updatePaperTotal();
+        refreshInkCosts(false);
+        updateLabourTotal();
+        calculateTotals();
     }
 
     function inferStructureFromFields(fields) {
         const count = function (key) {
             return Array.isArray(fields[key]) ? fields[key].length : (fields[key] ? 1 : 0);
         };
+        const maxCount = function (keys) {
+            let max = 0;
+            keys.forEach(function (key) {
+                max = Math.max(max, count(key));
+            });
+            return max;
+        };
         return {
             paperTypes: Array.isArray(fields.paper_type) ? fields.paper_type : defaultPaperTypes,
             inkColours: Array.isArray(fields.ink_colour) ? fields.ink_colour : defaultColours,
-            materialRowCount: Math.max(1, count('material_id') - 4),
             bindingRowCount: Math.max(1, count('binding_mat_id')),
-            machineBlockCount: Math.max(1, count('press_machine_name')),
-            prepressRowCount: Math.max(DEFAULT_PREPRESS_ROWS, count('prepress_name')),
-            finishingRowCount: Math.max(DEFAULT_FINISHING_ROWS, count('finishing_name')),
+            machineBlockCount: Math.max(1, maxCount(['press_machine_name', 'press_task_id', 'press_mr_hrs'])),
+            prepressRowCount: Math.max(
+                DEFAULT_PREPRESS_ROWS,
+                maxCount(['prepress_name', 'prepress_task_id', 'prepress_hrs', 'prepress_rate'])
+            ),
+            finishingRowCount: Math.max(
+                DEFAULT_FINISHING_ROWS,
+                maxCount(['finishing_name', 'finishing_task_id', 'finishing_hrs', 'finishing_rate', 'finishing_impressions'])
+            ),
         };
     }
 
@@ -305,26 +485,7 @@ $(document).ready(function () {
         }
         const snapshot = buildSnapshot(pendingSync);
         const primaryKey = getDraftStorageKey();
-        const saves = [FormDraftStore.save(primaryKey, snapshot)];
-        const estId = getDraftEstId();
-        if (estId) {
-            saves.push(FormDraftStore.save(getDraftStorageKey(estId), snapshot));
-        }
-        return Promise.all(saves).then(function () {
-            FormDraftStore.setPointer({
-                estId: snapshot.meta.estId,
-                step: snapshot.meta.step,
-                updatedAt: snapshot.meta.updatedAt,
-                userId: wizardConfig.userId,
-            });
-            if (pendingSync || !navigator.onLine) {
-                updateDraftStatus('Saved on this device · waiting to sync', 'warn');
-            } else if (localBaseRevision > 0) {
-                updateDraftStatus('Synced · rev ' + localBaseRevision, 'ok');
-            } else {
-                updateDraftStatus('Saved on this device', 'ok');
-            }
-        });
+        return persistToLocalStore(primaryKey, snapshot, pendingSync);
     }
 
     function persistLocallySync(pendingSync) {
@@ -332,17 +493,24 @@ $(document).ready(function () {
             return null;
         }
         const snapshot = buildSnapshot(pendingSync);
-        FormDraftStore.saveSync(getDraftStorageKey(), snapshot);
+        const primaryKey = getDraftStorageKey();
         const estId = getDraftEstId();
-        if (estId) {
-            FormDraftStore.saveSync(getDraftStorageKey(estId), snapshot);
+        if (freshStart && !estId) {
+            FormDraftStore.saveSessionSync(primaryKey, snapshot);
+        } else {
+            FormDraftStore.saveSync(primaryKey, snapshot);
+            if (estId) {
+                FormDraftStore.saveSync(getDraftStorageKey(estId), snapshot);
+            }
         }
-        FormDraftStore.setPointer({
-            estId: snapshot.meta.estId,
-            step: snapshot.meta.step,
-            updatedAt: snapshot.meta.updatedAt,
-            userId: wizardConfig.userId,
-        });
+        if (shouldSetDraftPointer()) {
+            FormDraftStore.setPointer({
+                estId: snapshot.meta.estId,
+                step: snapshot.meta.step,
+                updatedAt: snapshot.meta.updatedAt,
+                userId: wizardConfig.userId,
+            });
+        }
         return snapshot;
     }
 
@@ -479,12 +647,17 @@ $(document).ready(function () {
         if (!chosen) {
             return;
         }
-        if (chosen.structure) {
-            rebuildFromStructure(chosen.structure);
-        } else if (chosen.fields) {
-            rebuildFromStructure(inferStructureFromFields(chosen.fields));
+        if (chosen.fields) {
+            chosen.fields = migrateExtraMaterialsToBinding(chosen.fields);
+        }
+        const structure = chosen.fields
+            ? inferStructureFromFields(chosen.fields)
+            : chosen.structure;
+        if (structure) {
+            rebuildFromStructure(structure);
         }
         applyFields(chosen.fields);
+        syncLabourTaskSelectsFromNames();
         // Legacy drafts without ink_calc_mode used manual kgs — keep breakdown mode.
         try {
             var restoredInkMode = chosen.fields && chosen.fields.ink_calc_mode
@@ -512,7 +685,7 @@ $(document).ready(function () {
             pendingServerSync = true;
         }
         lastSyncedFormFingerprint = formFingerprint(chosen.fields || captureFields());
-        calculateTotals();
+        recalculateAllSectionTotals();
     }
 
     function openDraftConflictModal(payload) {
@@ -643,6 +816,9 @@ $(document).ready(function () {
                 if (result.data.est_id) {
                     setDraftEstId(result.data.est_id);
                 }
+                if (result.data.estimation_number) {
+                    updateFreshStartSubtitle(result.data.estimation_number);
+                }
 
                 if (result.data.draft_revision != null) {
                     localBaseRevision = parseInt(result.data.draft_revision, 10) || 0;
@@ -673,6 +849,9 @@ $(document).ready(function () {
                     if (estimationForm && window.FormUnsavedGuard) {
                         window.FormUnsavedGuard.resetBaseline(estimationForm);
                     }
+                    if (typeof window.refreshDraftVersionHistory === 'function') {
+                        window.refreshDraftVersionHistory();
+                    }
                 });
             })
             .catch(function (err) {
@@ -695,6 +874,16 @@ $(document).ready(function () {
 
         autosaveInFlight = request;
         return request;
+    }
+
+    function updateFreshStartSubtitle(estimationNumber) {
+        if (!freshStart || !estimationNumber) {
+            return;
+        }
+        const subtitle = document.getElementById('estimation-page-subtitle');
+        if (subtitle) {
+            subtitle.textContent = 'Draft #' + estimationNumber + ' — autosaving as you work.';
+        }
     }
 
     function flushPendingServerSync() {
@@ -768,6 +957,36 @@ $(document).ready(function () {
             lastSyncedFormFingerprint = formFingerprint(serverSnapshot.fields || captureFields());
             return clearAllDraftStorage().then(function () {
                 return persistLocallyImmediate(false);
+            });
+        }
+
+        // Fresh create: never restore from :active or legacy keys; same-tab session only.
+        if (freshStart) {
+            localBaseRevision = 0;
+            const sessionKey = getDraftStorageKey();
+            const sessionLoad = window.FormDraftStore
+                ? FormDraftStore.loadSession(sessionKey)
+                : Promise.resolve(null);
+
+            return sessionLoad.then(function (clientSnapshot) {
+                if (!clientSnapshot || !snapshotHasMeaningfulFields(clientSnapshot)) {
+                    return;
+                }
+                applySnapshotToForm(clientSnapshot);
+                if (clientSnapshot.meta && clientSnapshot.meta.estId) {
+                    setDraftEstId(clientSnapshot.meta.estId);
+                }
+                if (clientSnapshot.meta && clientSnapshot.meta.revision != null) {
+                    localBaseRevision = parseInt(clientSnapshot.meta.revision, 10) || 0;
+                }
+                if (clientSnapshot.meta && clientSnapshot.meta.step) {
+                    currentStep = parseInt(clientSnapshot.meta.step, 10) || 1;
+                }
+                if (clientSnapshot.meta && clientSnapshot.meta.pendingSync) {
+                    pendingServerSync = true;
+                    syncAfterRestore = true;
+                }
+                lastSyncedFormFingerprint = formFingerprint(clientSnapshot.fields || captureFields());
             });
         }
 
@@ -921,6 +1140,201 @@ $(document).ready(function () {
                 });
             });
         }
+    }
+
+    function formatDraftVersionTime(savedAt) {
+        if (!savedAt) {
+            return 'Unknown time';
+        }
+        const dt = new Date(String(savedAt).replace(' ', 'T'));
+        if (isNaN(dt.getTime())) {
+            return savedAt;
+        }
+        return dt.toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    }
+
+    function bindDraftVersionHistory() {
+        const toggle = document.getElementById('draftHistoryToggle');
+        const panel = document.getElementById('draftHistoryPanel');
+        const listEl = document.getElementById('draftHistoryList');
+        const restoreModal = document.getElementById('draftVersionRestoreModal');
+        const restoreMessage = document.getElementById('draftVersionRestoreMessage');
+        const restoreCancel = document.getElementById('draftVersionRestoreCancel');
+        const restoreConfirm = document.getElementById('draftVersionRestoreConfirm');
+        const versionsEndpoint = endpoints.draftVersions;
+
+        if (!toggle || !panel || !listEl || !versionsEndpoint || !draftMode) {
+            return;
+        }
+
+        let pendingRestoreRevision = null;
+        let versionsLoaded = false;
+
+        function closeHistoryPanel() {
+            panel.classList.add('hidden');
+        }
+
+        function closeVersionRestoreModal() {
+            if (restoreModal) {
+                restoreModal.classList.add('hidden');
+            }
+            pendingRestoreRevision = null;
+        }
+
+        function renderVersionList(versions) {
+            if (!versions || !versions.length) {
+                listEl.innerHTML = '<p class="px-3 py-4 text-sm text-gray-500">No saved versions yet.</p>';
+                return;
+            }
+
+            listEl.innerHTML = versions.map(function (item) {
+                const label = item.is_current ? 'Current' : (item.label || ('rev ' + item.revision));
+                const time = formatDraftVersionTime(item.saved_at);
+                const step = item.draft_step || 1;
+                const restoreBtn = item.is_current
+                    ? '<span class="text-xs text-gray-400">Active</span>'
+                    : '<button type="button" class="draft-version-restore text-xs font-semibold text-amber-700 hover:text-amber-900" data-revision="' + item.revision + '" data-time="' + time.replace(/"/g, '&quot;') + '">Restore</button>';
+
+                return '<div class="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50">' +
+                    '<div class="min-w-0">' +
+                    '<p class="text-sm font-semibold text-gray-800">' + label + '</p>' +
+                    '<p class="text-xs text-gray-500">' + time + ' · Step ' + step + '</p>' +
+                    '</div>' +
+                    restoreBtn +
+                    '</div>';
+            }).join('');
+
+            listEl.querySelectorAll('.draft-version-restore').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    pendingRestoreRevision = parseInt(btn.getAttribute('data-revision'), 10) || null;
+                    const timeLabel = btn.getAttribute('data-time') || 'this version';
+                    if (restoreMessage) {
+                        restoreMessage.textContent = 'Replace the current form with the version from ' + timeLabel + '? Unsaved changes will be lost.';
+                    }
+                    closeHistoryPanel();
+                    if (restoreModal) {
+                        restoreModal.classList.remove('hidden');
+                    }
+                });
+            });
+        }
+
+        function loadVersionList(force) {
+            const estId = getDraftEstId();
+            if (!estId) {
+                return Promise.resolve();
+            }
+            if (versionsLoaded && !force) {
+                return Promise.resolve();
+            }
+            listEl.innerHTML = '<p class="px-3 py-4 text-sm text-gray-500">Loading…</p>';
+            return fetch(versionsEndpoint + '?est_id=' + encodeURIComponent(estId), {
+                credentials: 'same-origin',
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    if (!data.success) {
+                        throw new Error(data.message || 'Failed to load versions');
+                    }
+                    versionsLoaded = true;
+                    renderVersionList(data.versions || []);
+                })
+                .catch(function (err) {
+                    listEl.innerHTML = '<p class="px-3 py-4 text-sm text-red-600">' + (err.message || 'Could not load history') + '</p>';
+                });
+        }
+
+        toggle.addEventListener('click', function (event) {
+            event.stopPropagation();
+            const willOpen = panel.classList.contains('hidden');
+            if (willOpen) {
+                panel.classList.remove('hidden');
+                loadVersionList(false);
+            } else {
+                closeHistoryPanel();
+            }
+        });
+
+        document.addEventListener('click', function (event) {
+            const wrap = document.getElementById('draftHistoryWrap');
+            if (wrap && !wrap.contains(event.target)) {
+                closeHistoryPanel();
+            }
+        });
+
+        if (restoreCancel) {
+            restoreCancel.addEventListener('click', closeVersionRestoreModal);
+        }
+
+        if (restoreConfirm) {
+            restoreConfirm.addEventListener('click', function () {
+                const estId = getDraftEstId();
+                const revision = pendingRestoreRevision;
+                if (!estId || !revision) {
+                    closeVersionRestoreModal();
+                    return;
+                }
+
+                const body = new URLSearchParams();
+                body.append('action', 'restore');
+                body.append('est_id', String(estId));
+                body.append('revision', String(revision));
+
+                restoreConfirm.disabled = true;
+                fetch(versionsEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body.toString(),
+                    credentials: 'same-origin',
+                })
+                    .then(function (response) { return response.json(); })
+                    .then(function (data) {
+                        if (!data.success) {
+                            throw new Error(data.message || 'Restore failed');
+                        }
+                        const snapshot = snapshotFromServerData(data.draft_data, {
+                            revision: data.draft_revision,
+                            contentHash: data.draft_content_hash,
+                            step: data.draft_step,
+                            updatedAt: data.timestamp,
+                        });
+                        applySnapshotToForm(snapshot);
+                        localBaseRevision = parseInt(data.draft_revision, 10) || localBaseRevision;
+                        wizardConfig.serverDraftRevision = localBaseRevision;
+                        wizardConfig.serverDraftContentHash = data.draft_content_hash || null;
+                        if (data.draft_step) {
+                            currentStep = parseInt(data.draft_step, 10) || currentStep;
+                            showStep(currentStep);
+                        }
+                        pendingServerSync = false;
+                        lastSyncedFormFingerprint = formFingerprint();
+                        persistLocallyImmediate(false);
+                        syncUnsavedBaseline();
+                        versionsLoaded = false;
+                        showAutoSaveNotification('Version restored');
+                        updateDraftStatus('Restored · rev ' + localBaseRevision, 'ok');
+                    })
+                    .catch(function (err) {
+                        alert('Could not restore version: ' + err.message);
+                    })
+                    .finally(function () {
+                        restoreConfirm.disabled = false;
+                        closeVersionRestoreModal();
+                    });
+            });
+        }
+
+        window.refreshDraftVersionHistory = function () {
+            versionsLoaded = false;
+            if (!panel.classList.contains('hidden')) {
+                loadVersionList(true);
+            }
+        };
     }
 
     function bindLogoutDraftFlush() {
@@ -1099,40 +1513,6 @@ $(document).ready(function () {
         card.find('.std-calc-total').val(formatCurrency(qty * rate));
         calculateTotals();
     });
-
-    // =====================
-    // DYNAMIC MATERIAL ROWS
-    // =====================
-    $('#add-material-row').click(function () { addMaterialRow(); });
-
-    $(document).on('click', '.remove-row', function () {
-        $(this).closest('tr').remove();
-        calculateTotals();
-    });
-
-    $(document).on('change', '.material-select', function () {
-        const row = $(this).closest('tr');
-        const rate = $(this).find(':selected').data('rate') || 0;
-        row.find('.material-rate').val(rate);
-        calcMaterialRow(row);
-    });
-
-    $(document).on('input', '.material-qty, .material-rate', function () {
-        calcMaterialRow($(this).closest('tr'));
-    });
-
-    function addMaterialRow() {
-        const tmpl = document.getElementById('material-row-template');
-        $('#material-rows').append(tmpl.content.cloneNode(true));
-        refreshLucide();
-    }
-
-    function calcMaterialRow(row) {
-        const qty = parseFloat(row.find('.material-qty').val()) || 0;
-        const rate = parseFloat(row.find('.material-rate').val()) || 0;
-        row.find('.material-total').val(formatCurrency(qty * rate));
-        calculateTotals();
-    }
 
     // =====================
     // PAPER ENTRIES
@@ -1453,6 +1833,44 @@ $(document).ready(function () {
     // =====================
     $(document).on('click', '#add-binding-row', function () { addBindingRow(); });
 
+    function bindingMaterialOptionLabel(name, unit) {
+        return unit ? name + ' (' + unit + ')' : name;
+    }
+
+    function appendBindingMaterialOption(materialId, name, rate, unit) {
+        const label = bindingMaterialOptionLabel(name, unit);
+        const optHtml = '<option value="' + materialId + '" data-rate="' + rate + '" data-unit="' + (unit || '') + '">' + label + '</option>';
+        $('.binding-mat-select').append(optHtml);
+        const tmpl = document.getElementById('binding-row-template');
+        if (tmpl) {
+            const sel = tmpl.content.querySelector('.binding-mat-select');
+            const opt = document.createElement('option');
+            opt.value = materialId;
+            opt.textContent = label;
+            opt.setAttribute('data-rate', rate);
+            opt.setAttribute('data-unit', unit || '');
+            sel.appendChild(opt);
+        }
+    }
+
+    function selectBindingMaterialInForm(materialId, rate, unit) {
+        let row = $('#binding-rows .binding-row').filter(function () {
+            return !$(this).find('.binding-mat-select').val();
+        }).first();
+        if (!row.length) {
+            addBindingRow();
+            row = $('#binding-rows .binding-row').last();
+        }
+        row.find('.binding-mat-select').val(String(materialId));
+        if (rate !== undefined && rate !== null && rate !== '') {
+            row.find('.binding-mat-rate').val(rate);
+        }
+        if (unit) {
+            row.find('.binding-mat-unit').val(unit);
+        }
+        calcBindingRow(row);
+    }
+
     function addBindingRow() {
         const tmpl = document.getElementById('binding-row-template');
         $('#binding-rows').append(tmpl.content.cloneNode(true));
@@ -1466,10 +1884,11 @@ $(document).ready(function () {
 
     $(document).on('change', '.binding-mat-select', function () {
         const row = $(this).closest('tr');
-        const rate = $(this).find(':selected').data('rate') || '';
-        const unit = $(this).find(':selected').data('unit') || '';
-        if (rate) row.find('.binding-mat-rate').val(rate);
-        if (unit) row.find('.binding-mat-unit').val(unit);
+        const selected = $(this).find(':selected');
+        const rate = selected.data('rate') || '';
+        const unit = selected.data('unit') || '';
+        row.find('.binding-mat-rate').val(rate);
+        row.find('.binding-mat-unit').val(unit);
         calcBindingRow(row);
     });
 
@@ -1496,10 +1915,58 @@ $(document).ready(function () {
     // =====================
     // PRE-PRESS LABOUR
     // =====================
-    $(document).on('click', '#add-prepress-row', function () {
+    function addPrepressRow() {
         const tmpl = document.getElementById('prepress-row-template');
+        if (!tmpl) {
+            return;
+        }
         $('#prepress-rows').append(tmpl.content.cloneNode(true));
         refreshLucide();
+    }
+
+    function appendPrepressTaskOption(taskId, name, rate, unit) {
+        const label = unit ? name + ' (' + unit + ')' : name;
+        const optHtml = '<option value="' + taskId + '" data-name="' + name + '" data-rate="' + (rate || '') + '" data-unit="' + (unit || 'hrs') + '">' + label + '</option>';
+        $('.prepress-task-select').append(optHtml);
+        const tmpl = document.getElementById('prepress-row-template');
+        if (tmpl) {
+            const sel = tmpl.content.querySelector('.prepress-task-select');
+            const opt = document.createElement('option');
+            opt.value = taskId;
+            opt.textContent = label;
+            opt.setAttribute('data-name', name);
+            opt.setAttribute('data-rate', rate || '');
+            opt.setAttribute('data-unit', unit || 'hrs');
+            sel.appendChild(opt);
+        }
+    }
+
+    function selectPrepressTaskInForm(taskId, name, rate, unit) {
+        let row = $('#prepress-rows .prepress-row').filter(function () {
+            return !$(this).find('.prepress-task-select').val();
+        }).first();
+        if (!row.length) {
+            addPrepressRow();
+            row = $('#prepress-rows .prepress-row').last();
+        }
+        row.find('.prepress-task-select').val(String(taskId));
+        row.find('.prepress-name').val(name || '');
+        row.find('.prepress-unit').val(unit || 'hrs');
+        if (rate !== undefined && rate !== null && rate !== '') {
+            row.find('.prepress-rate').val(rate);
+        }
+        calcPrepressRow(row);
+    }
+
+    function calcPrepressRow(row) {
+        const hrs = parseFloat(row.find('.prepress-hrs').val()) || 0;
+        const rate = parseFloat(row.find('.prepress-rate').val()) || 0;
+        row.find('.prepress-total').val(formatCurrency(hrs * rate));
+        calcPrepressTotals();
+    }
+
+    $(document).on('click', '#add-prepress-row', function () {
+        addPrepressRow();
     });
 
     $(document).on('click', '.remove-prepress-row', function () {
@@ -1507,12 +1974,17 @@ $(document).ready(function () {
         calcPrepressTotals();
     });
 
-    $(document).on('input', '.prepress-hrs, .prepress-rate', function () {
+    $(document).on('change', '.prepress-task-select', function () {
         const row = $(this).closest('tr');
-        const hrs = parseFloat(row.find('.prepress-hrs').val()) || 0;
-        const rate = parseFloat(row.find('.prepress-rate').val()) || 0;
-        row.find('.prepress-total').val(formatCurrency(hrs * rate));
-        calcPrepressTotals();
+        const selected = $(this).find(':selected');
+        row.find('.prepress-name').val(selected.data('name') || '');
+        row.find('.prepress-unit').val(selected.data('unit') || 'hrs');
+        row.find('.prepress-rate').val(selected.data('rate') || '');
+        calcPrepressRow(row);
+    });
+
+    $(document).on('input', '.prepress-hrs, .prepress-rate', function () {
+        calcPrepressRow($(this).closest('tr'));
     });
 
     function calcPrepressTotals() {
@@ -1532,6 +2004,29 @@ $(document).ready(function () {
         addMachineBlock();
     }
 
+    function pressTaskOptionsHtml() {
+        const tmpl = document.getElementById('press-task-options');
+        if (!tmpl) {
+            return '<option value="">Select Machine</option>';
+        }
+        return tmpl.innerHTML;
+    }
+
+    function appendPressTaskOption(taskId, name, makeReadyRate, runningRate) {
+        const optHtml = '<option value="' + taskId + '" data-name="' + name + '" data-mr-rate="' + (makeReadyRate || '') + '" data-run-rate="' + (runningRate || '') + '">' + name + '</option>';
+        $('.press-task-select').append(optHtml);
+        const tmpl = document.getElementById('press-task-options');
+        if (tmpl) {
+            const opt = document.createElement('option');
+            opt.value = taskId;
+            opt.textContent = name;
+            opt.setAttribute('data-name', name);
+            opt.setAttribute('data-mr-rate', makeReadyRate || '');
+            opt.setAttribute('data-run-rate', runningRate || '');
+            tmpl.content.appendChild(opt);
+        }
+    }
+
     function addMachineBlock() {
         const idx = $('.machine-block').length + 1;
         const html = `
@@ -1543,8 +2038,11 @@ $(document).ready(function () {
                 </button>
             </div>
             <div class="mb-3">
-                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Machine Name</label>
-                <input type="text" name="press_machine_name[]" class="w-full border-gray-300 rounded-lg press-machine-name" placeholder="e.g. Heidelberg GTO">
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Machine</label>
+                <select name="press_task_id[]" class="w-full border-gray-300 rounded-lg press-task-select">
+                    ${pressTaskOptionsHtml()}
+                </select>
+                <input type="hidden" name="press_machine_name[]" class="press-machine-name" value="">
             </div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2 bg-blue-50 p-3 rounded-lg">
                 <div class="md:col-span-4 text-xs font-bold text-blue-700 uppercase mb-1">Make Ready</div>
@@ -1595,28 +2093,42 @@ $(document).ready(function () {
 
     $(document).on('click', '#add-machine-btn', function () { addMachineBlock(); });
 
+    $(document).on('change', '.press-task-select', function () {
+        const block = $(this).closest('.machine-block');
+        const selected = $(this).find(':selected');
+        block.find('.press-machine-name').val(selected.data('name') || '');
+        block.find('.press-mr-rate').val(selected.data('mr-rate') || '');
+        block.find('.press-run-rate').val(selected.data('run-rate') || '');
+        calcPressBlock(block);
+    });
+
+    function calcPressBlock(block) {
+        const mrHrs = parseFloat(block.find('.press-mr-hrs').val()) || 0;
+        const mrRate = parseFloat(block.find('.press-mr-rate').val()) || 0;
+        block.find('.press-mr-total').val(formatCurrency(mrHrs * mrRate));
+
+        const impressions = parseFloat(block.find('.press-impressions').val()) || 0;
+        const iph = parseFloat(block.find('.press-iph').val()) || 0;
+        const runHrs = iph > 0 ? impressions / iph : (parseFloat(block.find('.press-run-hrs').val()) || 0);
+        if (iph > 0) {
+            block.find('.press-run-hrs').val(runHrs.toFixed(2));
+        }
+        const runRate = parseFloat(block.find('.press-run-rate').val()) || 0;
+        block.find('.press-run-total').val(formatCurrency(runHrs * runRate));
+        calcPressTotals();
+    }
+
     $(document).on('click', '.remove-machine-btn', function () {
         $(this).closest('.machine-block').remove();
         calcPressTotals();
     });
 
     $(document).on('input', '.press-mr-hrs, .press-mr-rate', function () {
-        const block = $(this).closest('.machine-block');
-        const hrs = parseFloat(block.find('.press-mr-hrs').val()) || 0;
-        const rate = parseFloat(block.find('.press-mr-rate').val()) || 0;
-        block.find('.press-mr-total').val(formatCurrency(hrs * rate));
-        calcPressTotals();
+        calcPressBlock($(this).closest('.machine-block'));
     });
 
     $(document).on('input', '.press-impressions, .press-iph, .press-run-hrs, .press-run-rate', function () {
-        const block = $(this).closest('.machine-block');
-        const impressions = parseFloat(block.find('.press-impressions').val()) || 0;
-        const iph = parseFloat(block.find('.press-iph').val()) || 0;
-        const runHrs = iph > 0 ? impressions / iph : (parseFloat(block.find('.press-run-hrs').val()) || 0);
-        if (iph > 0) block.find('.press-run-hrs').val(runHrs.toFixed(2));
-        const rate = parseFloat(block.find('.press-run-rate').val()) || 0;
-        block.find('.press-run-total').val(formatCurrency(runHrs * rate));
-        calcPressTotals();
+        calcPressBlock($(this).closest('.machine-block'));
     });
 
     function calcPressTotals() {
@@ -1632,19 +2144,55 @@ $(document).ready(function () {
     // =====================
     // FINISHING LABOUR
     // =====================
-    $(document).on('click', '#add-finishing-row', function () {
+    function addFinishingRow() {
         const tmpl = document.getElementById('finishing-row-template');
+        if (!tmpl) {
+            return;
+        }
         $('#finishing-rows').append(tmpl.content.cloneNode(true));
         refreshLucide();
-    });
+    }
 
-    $(document).on('click', '.remove-finishing-row', function () {
-        $(this).closest('tr').remove();
-        calcFinishingTotals();
-    });
+    function appendFinishingTaskOption(taskId, name, rate, measure, defaultIph) {
+        const optHtml = '<option value="' + taskId + '" data-name="' + name + '" data-rate="' + (rate || '') + '" data-measure="' + (measure || 'items') + '" data-iph="' + (defaultIph || '') + '">' + name + '</option>';
+        $('.finishing-task-select').append(optHtml);
+        const tmpl = document.getElementById('finishing-row-template');
+        if (tmpl) {
+            const sel = tmpl.content.querySelector('.finishing-task-select');
+            const opt = document.createElement('option');
+            opt.value = taskId;
+            opt.textContent = name;
+            opt.setAttribute('data-name', name);
+            opt.setAttribute('data-rate', rate || '');
+            opt.setAttribute('data-measure', measure || 'items');
+            opt.setAttribute('data-iph', defaultIph || '');
+            sel.appendChild(opt);
+        }
+    }
 
-    $(document).on('input', '.finishing-impressions, .finishing-iph, .finishing-hrs, .finishing-rate', function () {
-        const row = $(this).closest('tr');
+    function selectFinishingTaskInForm(taskId, name, rate, measure, defaultIph) {
+        let row = $('#finishing-rows .finishing-row').filter(function () {
+            return !$(this).find('.finishing-task-select').val();
+        }).first();
+        if (!row.length) {
+            addFinishingRow();
+            row = $('#finishing-rows .finishing-row').last();
+        }
+        row.find('.finishing-task-select').val(String(taskId));
+        row.find('.finishing-name').val(name || '');
+        if (measure) {
+            row.find('.finishing-measure').val(measure);
+        }
+        if (defaultIph) {
+            row.find('.finishing-iph').val(defaultIph);
+        }
+        if (rate !== undefined && rate !== null && rate !== '') {
+            row.find('.finishing-rate').val(rate);
+        }
+        calcFinishingRow(row);
+    }
+
+    function calcFinishingRow(row) {
         const impressions = parseFloat(row.find('.finishing-impressions').val()) || 0;
         const iph = parseFloat(row.find('.finishing-iph').val()) || 0;
         const rate = parseFloat(row.find('.finishing-rate').val()) || 0;
@@ -1654,6 +2202,31 @@ $(document).ready(function () {
         }
         row.find('.finishing-total').val(formatCurrency(hrs * rate));
         calcFinishingTotals();
+    }
+
+    $(document).on('click', '#add-finishing-row', function () {
+        addFinishingRow();
+    });
+
+    $(document).on('click', '.remove-finishing-row', function () {
+        $(this).closest('tr').remove();
+        calcFinishingTotals();
+    });
+
+    $(document).on('change', '.finishing-task-select', function () {
+        const row = $(this).closest('tr');
+        const selected = $(this).find(':selected');
+        row.find('.finishing-name').val(selected.data('name') || '');
+        row.find('.finishing-measure').val(selected.data('measure') || 'items');
+        if (selected.data('iph')) {
+            row.find('.finishing-iph').val(selected.data('iph'));
+        }
+        row.find('.finishing-rate').val(selected.data('rate') || '');
+        calcFinishingRow(row);
+    });
+
+    $(document).on('input', '.finishing-impressions, .finishing-iph, .finishing-hrs, .finishing-rate', function () {
+        calcFinishingRow($(this).closest('tr'));
     });
 
     function calcFinishingTotals() {
@@ -1690,9 +2263,8 @@ $(document).ready(function () {
         // Ink — always refresh cost_ink from formula and/or breakdown (no recursion)
         refreshInkCosts(false);
 
-        // Materials subtotal (standard cards + dynamic rows)
+        // Materials subtotal (standard cards only)
         let matSubtotal = 0;
-        $('.material-total').each(function () { matSubtotal += parseFloat($(this).val()) || 0; });
         $('.std-calc-total').each(function () { matSubtotal += parseFloat($(this).val()) || 0; });
 
         // All cost fields - parse formatted currency values
@@ -1717,38 +2289,6 @@ $(document).ready(function () {
         $('input[name="grand_total"]').val(formatCurrency(taxableAmount + vatAmount));
     }
 
-    // =====================
-    // QUICK ADD MODALS
-    // =====================
-    $('#quickAddForm').submit(function (e) {
-        e.preventDefault();
-        $.ajax({
-            url: '../materials/save',
-            method: 'POST',
-            data: $(this).serialize(),
-            dataType: 'json',
-            success: function (response) {
-                if (response.status === 'success') {
-                    const newOpt = `<option value="${response.material_id}" data-rate="${response.rate}">${response.name}</option>`;
-                    $('.material-select').append(newOpt);
-                    const tmpl = document.getElementById('material-row-template');
-                    const sel = tmpl.content.querySelector('.material-select');
-                    const opt = document.createElement('option');
-                    opt.value = response.material_id;
-                    opt.text = response.name;
-                    opt.setAttribute('data-rate', response.rate);
-                    sel.add(opt);
-                    alert('Material added!');
-                    closeQuickAddModal();
-                    $('#quickAddForm')[0].reset();
-                } else {
-                    alert('Error: ' + response.message);
-                }
-            },
-            error: function () { alert('Connection error. Please try again.'); }
-        });
-    });
-
     $('#bindingAddForm').submit(function (e) {
         e.preventDefault();
         $.ajax({
@@ -1758,16 +2298,9 @@ $(document).ready(function () {
             dataType: 'json',
             success: function (response) {
                 if (response.status === 'success') {
-                    const newOpt = `<option value="${response.material_id}" data-rate="${response.rate}" data-unit="">${response.name}</option>`;
-                    $('.binding-mat-select').append(newOpt);
-                    const tmpl = document.getElementById('binding-row-template');
-                    const sel = tmpl.content.querySelector('.binding-mat-select');
-                    const opt = document.createElement('option');
-                    opt.value = response.material_id;
-                    opt.text = response.name;
-                    opt.setAttribute('data-rate', response.rate);
-                    sel.add(opt);
-                    alert('Binding material added!');
+                    appendBindingMaterialOption(response.material_id, response.name, response.rate, response.unit);
+                    selectBindingMaterialInForm(response.material_id, response.rate, response.unit);
+                    updateDraftStatus('Material saved and added to list', 'ok');
                     closeBindingAddModal();
                     $('#bindingAddForm')[0].reset();
                 } else {
@@ -1777,6 +2310,128 @@ $(document).ready(function () {
             error: function () { alert('Connection error. Please try again.'); }
         });
     });
+
+    $('#labourAddForm').submit(function (e) {
+        e.preventDefault();
+        const section = $('#labour_add_section').val();
+        if (section === 'press') {
+            $('#labour_add_rate_wrap input[name="rate"]').prop('required', false);
+        }
+        $.ajax({
+            url: '../labour/save',
+            method: 'POST',
+            data: $(this).serialize(),
+            dataType: 'json',
+            success: function (response) {
+                if (response.status === 'success') {
+                    if (response.section === 'prepress') {
+                        appendPrepressTaskOption(response.task_id, response.name, response.rate, response.unit);
+                        selectPrepressTaskInForm(response.task_id, response.name, response.rate, response.unit);
+                    } else if (response.section === 'finishing') {
+                        appendFinishingTaskOption(
+                            response.task_id,
+                            response.name,
+                            response.rate,
+                            response.measure_type,
+                            response.default_iph
+                        );
+                        selectFinishingTaskInForm(
+                            response.task_id,
+                            response.name,
+                            response.rate,
+                            response.measure_type,
+                            response.default_iph
+                        );
+                    } else if (response.section === 'press') {
+                        appendPressTaskOption(
+                            response.task_id,
+                            response.name,
+                            response.make_ready_rate,
+                            response.running_rate
+                        );
+                        selectPressTaskInForm(
+                            response.task_id,
+                            response.name,
+                            response.make_ready_rate,
+                            response.running_rate
+                        );
+                    }
+                    updateDraftStatus('Labour task saved and added to list', 'ok');
+                    closeLabourAddModal();
+                    $('#labourAddForm')[0].reset();
+                    configureLabourAddModal(section);
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function () { alert('Connection error. Please try again.'); }
+        }).always(function () {
+            $('#labour_add_rate_wrap input[name="rate"]').prop('required', true);
+        });
+    });
+
+    function syncLabourTaskSelectsFromNames() {
+        $('#prepress-rows .prepress-row').each(function () {
+            const row = $(this);
+            const name = (row.find('.prepress-name').val() || '').trim();
+            if (!name) {
+                return;
+            }
+            const match = row.find('.prepress-task-select option').filter(function () {
+                return ($(this).data('name') || '') === name;
+            }).first();
+            if (match.length) {
+                row.find('.prepress-task-select').val(match.val());
+            }
+        });
+
+        $('#finishing-rows .finishing-row').each(function () {
+            const row = $(this);
+            const name = (row.find('.finishing-name').val() || '').trim();
+            if (!name) {
+                return;
+            }
+            const match = row.find('.finishing-task-select option').filter(function () {
+                return ($(this).data('name') || '') === name;
+            }).first();
+            if (match.length) {
+                row.find('.finishing-task-select').val(match.val());
+            }
+        });
+
+        $('.machine-block').each(function () {
+            const block = $(this);
+            const name = (block.find('.press-machine-name').val() || '').trim();
+            if (!name) {
+                return;
+            }
+            const match = block.find('.press-task-select option').filter(function () {
+                return ($(this).data('name') || '') === name;
+            }).first();
+            if (match.length) {
+                block.find('.press-task-select').val(match.val());
+            }
+        });
+    }
+
+    function selectPressTaskInForm(taskId, name, makeReadyRate, runningRate) {
+        let block = $('.machine-block').filter(function () {
+            return !$(this).find('.press-task-select').val();
+        }).first();
+        if (!block.length) {
+            addMachineBlock();
+            block = $('.machine-block').last();
+        }
+        block.find('.press-task-select').val(String(taskId));
+        block.find('.press-machine-name').val(name || '');
+        if (makeReadyRate !== undefined && makeReadyRate !== null && makeReadyRate !== '') {
+            block.find('.press-mr-rate').val(makeReadyRate);
+        }
+        if (runningRate !== undefined && runningRate !== null && runningRate !== '') {
+            block.find('.press-run-rate').val(runningRate);
+        }
+        calcPressBlock(block);
+    }
 
     function syncUnsavedBaseline() {
         var estimationForm = document.getElementById('estimationForm');
@@ -1826,14 +2481,18 @@ $(document).ready(function () {
     initInkColourRows();
     initMachineRows();
 
-    if ($('#material-rows .material-row').length === 0) {
-        addMaterialRow();
-    }
     if ($('#binding-rows .binding-row').length === 0) {
         addBindingRow();
     }
+    if ($('#prepress-rows .prepress-row').length === 0) {
+        addPrepressRow();
+    }
+    if ($('#finishing-rows .finishing-row').length === 0) {
+        addFinishingRow();
+    }
 
     bindDraftConflictActions();
+    bindDraftVersionHistory();
     bindLogoutDraftFlush();
 
     resolveAndLoadDraft().then(function () {
@@ -1949,7 +2608,37 @@ $(document).ready(function () {
 });
 
 // Global modal functions
-function openQuickAddModal() { $('#quickAddModal').removeClass('hidden'); }
-function closeQuickAddModal() { $('#quickAddModal').addClass('hidden'); }
 function openBindingAddModal() { $('#bindingAddModal').removeClass('hidden'); }
 function closeBindingAddModal() { $('#bindingAddModal').addClass('hidden'); }
+
+function configureLabourAddModal(section) {
+    section = section || 'prepress';
+    $('#labour_add_section').val(section);
+
+    const titles = {
+        prepress: 'New Pre-press Task',
+        press: 'New Press Machine',
+        finishing: 'New Finishing Task',
+    };
+    $('#labourAddModalTitle').text(titles[section] || 'New Labour Task');
+    $('#labour_add_name_label').text(section === 'press' ? 'Machine Name *' : 'Task Name *');
+
+    const isFinishing = section === 'finishing';
+    const isPress = section === 'press';
+    $('#labour_add_measure_wrap').toggleClass('hidden', !isFinishing);
+    $('#labour_add_iph_wrap').toggleClass('hidden', !isFinishing);
+    $('#labour_add_rate_wrap').toggleClass('hidden', isPress);
+    $('#labour_add_press_rates_wrap').toggleClass('hidden', !isPress);
+}
+
+function openLabourAddModal(section) {
+    configureLabourAddModal(section);
+    $('#labourAddModal').removeClass('hidden');
+    if (typeof window.refreshAppShellIcons === 'function') {
+        window.refreshAppShellIcons();
+    }
+}
+
+function closeLabourAddModal() {
+    $('#labourAddModal').addClass('hidden');
+}
