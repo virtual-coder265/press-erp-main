@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../config/app.php';
 checkAuthApi();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
+require_once __DIR__ . '/../../includes/estimation_access_helper.php';
 permissions_require_one_of(['manage_estimations']);
 
 header('Content-Type: application/json');
@@ -22,10 +23,8 @@ try {
         exit;
     }
 
-    // Verify ownership and status
-    $stmt = $pdo->prepare("SELECT id, status FROM estimations WHERE id = :id AND created_by = :user");
-    $stmt->execute(['id' => $est_id, 'user' => $_SESSION['user_id']]);
-    $est = $stmt->fetch(PDO::FETCH_ASSOC);
+    // Verify access and status
+    $est = estimation_fetch_draft_row($pdo, $est_id, 'id, status');
 
     if (!$est) {
         http_response_code(404);

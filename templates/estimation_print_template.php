@@ -60,11 +60,14 @@ if (!in_array($logoPos, ['left', 'right', 'center', 'hidden'], true)) {
 }
 
 $papers = $papers ?? [];
+$standard_materials = $standard_materials ?? [];
+$other_items = $other_items ?? [];
 $inkRows = $inkRows ?? [];
 $binding = $binding ?? [];
 $prepress = $prepress ?? [];
 $press = $press ?? [];
 $finishing = $finishing ?? [];
+$consumables = $consumables ?? [];
 $subtotals = $subtotals ?? estimation_compute_section_subtotals($items ?? [], $papers, $inkRows, $binding, $prepress, $press, $finishing);
 
 $formatMoney = static function ($value): string {
@@ -514,9 +517,34 @@ $renderSectionHeading = static function (string $title, float $subtotal) use ($f
     </div>
     <?php endif; ?>
 
+    <!-- Standard materials -->
+    <?php if (!empty($standard_materials)): ?>
+        <?php $renderSectionHeading('Standard materials', (float) ($subtotals['standard_materials'] ?? 0)); ?>
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Material</th>
+                    <th class="text-right">Qty</th>
+                    <th class="text-right">Rate / unit</th>
+                    <th class="text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($standard_materials as $row): ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars((string) ($row['description'] ?? '—')); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['quantity'] ?? null); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['unit_price'] ?? null); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['total_price'] ?? 0); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
     <!-- Line items -->
-    <?php if (!empty($items)): ?>
-        <?php $renderSectionHeading('Line items', (float) ($subtotals['items'] ?? 0)); ?>
+    <?php if (!empty($other_items)): ?>
+        <?php $renderSectionHeading('Line items', (float) ($subtotals['other_items'] ?? 0)); ?>
         <table class="detail-table">
             <thead>
                 <tr>
@@ -528,7 +556,7 @@ $renderSectionHeading = static function (string $title, float $subtotal) use ($f
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($items as $row): ?>
+                <?php foreach ($other_items as $row): ?>
                     <tr>
                         <td><?php echo nl2br(htmlspecialchars((string) ($row['description'] ?? '—'))); ?></td>
                         <td><?php echo htmlspecialchars((string) ($row['item_type'] ?? '—')); ?></td>
@@ -546,6 +574,7 @@ $renderSectionHeading = static function (string $title, float $subtotal) use ($f
         <table class="detail-table">
             <thead>
                 <tr>
+                    <th>Catalog Material</th>
                     <th>Type</th>
                     <th>Size</th>
                     <th class="text-right">Grammage</th>
@@ -558,6 +587,7 @@ $renderSectionHeading = static function (string $title, float $subtotal) use ($f
             <tbody>
                 <?php foreach ($papers as $row): ?>
                     <tr>
+                        <td><?php echo htmlspecialchars((string) ($row['material_name'] ?? ($row['material_id'] ? 'Linked #' . (int) $row['material_id'] : '—'))); ?></td>
                         <td><?php echo htmlspecialchars((string) ($row['paper_type'] ?? '—')); ?></td>
                         <td><?php echo htmlspecialchars((string) ($row['paper_size'] ?? '—')); ?></td>
                         <td class="text-right"><?php echo $formatQty($row['paper_grammage'] ?? 0); ?></td>
@@ -711,7 +741,36 @@ $renderSectionHeading = static function (string $title, float $subtotal) use ($f
         </table>
     <?php endif; ?>
 
-    <?php if (empty($items) && empty($papers) && empty($inkRows) && empty($binding) && empty($prepress) && empty($press) && empty($finishing)): ?>
+    <?php if (!empty($consumables)): ?>
+        <?php $renderSectionHeading('Printing consumables', (float) ($subtotals['consumables'] ?? 0)); ?>
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Material</th>
+                    <th>Unit</th>
+                    <th class="text-right">Qty</th>
+                    <th class="text-right">Rate</th>
+                    <th class="text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($consumables as $row):
+                    $details = estimation_decode_item_details($row['details_json'] ?? null);
+                    $unit = trim((string) ($details['unit'] ?? ''));
+                    ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars((string) ($row['description'] ?? '—')); ?></td>
+                        <td><?php echo htmlspecialchars($unit !== '' ? $unit : '—'); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['quantity'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatQty($row['unit_price'] ?? 0); ?></td>
+                        <td class="text-right"><?php echo $formatMoney($row['total_price'] ?? 0); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (empty($standard_materials) && empty($other_items) && empty($papers) && empty($inkRows) && empty($binding) && empty($prepress) && empty($press) && empty($finishing) && empty($consumables)): ?>
         <p class="text-center" style="color:#666;font-style:italic;">No line items or cost breakdown recorded.</p>
     <?php endif; ?>
 
@@ -726,13 +785,15 @@ $renderSectionHeading = static function (string $title, float $subtotal) use ($f
         <tbody>
             <?php
             $totalsRows = [
-                'Line items' => (float) ($subtotals['items'] ?? 0),
+                'Standard materials' => (float) ($subtotals['standard_materials'] ?? 0),
+                'Line items' => (float) ($subtotals['other_items'] ?? 0),
                 'Paper' => (float) ($subtotals['papers'] ?? 0),
                 'Ink' => (float) ($subtotals['ink'] ?? 0),
                 'Binding materials' => (float) ($subtotals['binding'] ?? 0),
                 'Pre-press labour' => (float) ($subtotals['prepress'] ?? 0),
                 'Press labour' => (float) ($subtotals['press'] ?? 0),
                 'Finishing labour' => (float) ($subtotals['finishing'] ?? 0),
+                'Printing consumables' => (float) ($subtotals['consumables'] ?? ($est['cost_consumables_amount'] ?? 0)),
             ];
             foreach ($totalsRows as $label => $value):
                 if ($value <= 0) {

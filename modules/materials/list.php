@@ -3,8 +3,9 @@ require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
+require_once __DIR__ . '/../../libs/MaterialSpecMigrator.php';
 permissions_require_one_of(['view_materials']);
-
+MaterialSpecMigrator::ensure($pdo);
 include '../../includes/header.php';
 
 // Search functionality
@@ -174,7 +175,7 @@ $categories = $pdo->query("SELECT * FROM material_categories ORDER BY name")->fe
             <div class="grid grid-cols-2 gap-3 mt-4 text-sm">
                 <div>
                     <p class="list-card-meta">Current Rate</p>
-                    <p class="list-card-value font-semibold text-gray-900"><?php echo number_format($mat['current_rate'], 2); ?></p>
+                    <p class="list-card-value font-semibold text-gray-900"><?php echo number_format((float) ($mat['current_rate'] ?? 0), 2); ?></p>
                 </div>
                 <div class="flex items-end justify-end">
                     <a href="edit?id=<?php echo $mat['id']; ?>" class="list-icon-action bg-green-600 text-white w-full" aria-label="Edit material">
@@ -215,7 +216,7 @@ $categories = $pdo->query("SELECT * FROM material_categories ORDER BY name")->fe
                     <?php endif; ?>
                 </td>
                 <td class="text-gray-600"><?php echo htmlspecialchars($mat['unit']); ?></td>
-                <td class="font-semibold text-gray-900"><?php echo number_format($mat['current_rate'], 2); ?></td>
+                <td class="font-semibold text-gray-900"><?php echo number_format((float) ($mat['current_rate'] ?? 0), 2); ?></td>
                 <td class="text-right">
                     <a href="edit?id=<?php echo $mat['id']; ?>" class="text-gray-400 hover:text-green-600 transition-colors" title="Edit Material">
                         <i class="material-icons">edit</i>

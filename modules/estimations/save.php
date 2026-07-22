@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
+require_once __DIR__ . '/../../includes/estimation_access_helper.php';
 permissions_require_one_of(['manage_estimations']);
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
 
@@ -49,9 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $is_existing_draft = false;
 
         if ($est_id) {
-            $checkStmt = $pdo->prepare("SELECT id, status, estimation_number FROM estimations WHERE id = :id AND created_by = :user");
-            $checkStmt->execute(['id' => $est_id, 'user' => $_SESSION['user_id']]);
-            $existingEst = $checkStmt->fetch(PDO::FETCH_ASSOC);
+            $existingEst = estimation_fetch_manageable_row($pdo, $est_id);
 
             if ($existingEst && $existingEst['status'] === 'Draft') {
                 $is_existing_draft = true;
@@ -81,7 +80,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // intermediate value so an invoice generated later can pull pre-VAT
         // totals + VAT % directly.
         $costSubtotal       = parseCurrency($_POST['subtotal'] ?? 0);
-        $costConsumables    = (float) ($_POST['cost_consumables'] ?? 0);
+        $costConsumables = parseCurrency($_POST['cost_consumables'] ?? 0);
+        if ($costConsumables <= 0) {
+            $costConsumables = parseCurrency($_POST['cost_consumables_misc'] ?? 0);
+        }
+        if ($costConsumables <= 0) {
+            $costConsumables = parseCurrency($_POST['cost_miscellaneous'] ?? 0);
+        }
         $costSupervision    = (float) ($_POST['cost_labour']      ?? 0);
         $profitPercent      = (float) ($_POST['profit_margin']    ?? 0);
         $vatPercent         = (float) ($_POST['vat_percent']      ?? 0);
@@ -233,14 +238,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // 2. Multi-Paper Entries
         if (!empty($_POST['paper_sheets'])) {
             $paperStmt = $pdo->prepare("INSERT INTO estimation_papers
-                (estimation_id, paper_type, paper_size, paper_grammage, paper_color, paper_sheets, paper_rate, paper_total, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                (estimation_id, material_id, paper_type, paper_size, paper_grammage, paper_color, paper_sheets, paper_rate, paper_total, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             foreach ($_POST['paper_sheets'] as $i => $sheets) {
                 $sheets = floatval($sheets);
                 $rate = floatval($_POST['paper_rate'][$i] ?? 0);
                 $total = parseCurrency($_POST['paper_total'][$i] ?? 0);
+                $materialId = intval($_POST['paper_material_id'][$i] ?? 0) ?: null;
                 $paperStmt->execute([
                     $est_id,
+                    $materialId,
                     $_POST['paper_type'][$i] ?? '',
                     $_POST['paper_size'][$i] ?? '',
                     floatval($_POST['paper_grammage'][$i] ?? 0),
@@ -275,15 +282,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         if (!empty($_POST['ink_colour']) && $inkCalcMode !== 'formula') {
             $inkStmt = $pdo->prepare("INSERT INTO estimation_ink_colours
-                (estimation_id, colour_name, kgs, rate, total, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?)");
+                (estimation_id, material_id, colour_name, kgs, rate, total, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?)");
             foreach ($_POST['ink_colour'] as $i => $colour) {
                 $kgs = floatval($_POST['ink_colour_kgs'][$i] ?? 0);
                 $rate = floatval($_POST['ink_colour_rate'][$i] ?? 0);
                 $total = parseCurrency($_POST['ink_colour_total'][$i] ?? 0);
                 $pct = floatval($_POST['ink_colour_pct'][$i] ?? 0);
+                $materialId = intval($_POST['ink_material_id'][$i] ?? 0) ?: null;
                 if ($kgs > 0 || $pct > 0 || !empty($colour)) {
-                    $inkStmt->execute([$est_id, $colour, $kgs, $rate, $total, $i]);
+                    $inkStmt->execute([$est_id, $materialId, $colour, $kgs, $rate, $total, $i]);
                 }
             }
         }
@@ -458,23 +466,84 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
 
         // 8. Consumables & Overhead
-        $staticItems = [
-            'cost_consumables' => ['Consumables', 'Material'],
-            'cost_labour' => ['Overtime & Supervision', 'Labor'],
-        ];
-        foreach ($staticItems as $field => [$desc, $type]) {
-            $price = floatval($_POST[$field] ?? 0);
-            if ($price > 0) {
+        $consumableCatalogTotal = 0.0;
+        if (!empty($_POST['consumable_mat_id'])) {
+            foreach ($_POST['consumable_mat_id'] as $i => $mid) {
+                $mid = intval($mid);
+                if ($mid <= 0) {
+                    continue;
+                }
+                $qty = floatval($_POST['consumable_mat_qty'][$i] ?? 0);
+                $rate = floatval($_POST['consumable_mat_rate'][$i] ?? 0);
+                $total = parseCurrency($_POST['consumable_mat_total'][$i] ?? 0);
+                if ($qty <= 0 && $total <= 0) {
+                    continue;
+                }
+                if ($total <= 0) {
+                    $total = $qty * $rate;
+                }
+                $consumableCatalogTotal += $total;
+                $unit = trim((string) ($_POST['consumable_mat_unit'][$i] ?? ''));
+                $n = $pdo->prepare('SELECT name, unit FROM materials WHERE id = ?');
+                $n->execute([$mid]);
+                $matRow = $n->fetch(PDO::FETCH_ASSOC) ?: [];
+                $matName = (string) ($matRow['name'] ?? 'Consumable');
+                if ($unit === '') {
+                    $unit = (string) ($matRow['unit'] ?? '');
+                }
                 $stmtItem->execute([
                     'eid' => $est_id,
-                    'type' => $type,
-                    'desc' => $desc,
-                    'qty' => 1,
-                    'price' => $price,
-                    'total' => $price,
-                    'json' => null
+                    'type' => 'Material',
+                    'desc' => $matName,
+                    'qty' => $qty > 0 ? $qty : 1,
+                    'price' => $rate,
+                    'total' => $total,
+                    'json' => json_encode([
+                        'material_id' => $mid,
+                        'consumable' => true,
+                        'unit' => $unit,
+                    ]),
                 ]);
             }
+        }
+
+        $consumableMisc = parseCurrency($_POST['cost_consumables_misc'] ?? 0);
+        if ($consumableMisc <= 0 && $costConsumables > $consumableCatalogTotal) {
+            $consumableMisc = round($costConsumables - $consumableCatalogTotal, 2);
+        }
+        if ($consumableMisc > 0) {
+            $stmtItem->execute([
+                'eid' => $est_id,
+                'type' => 'Material',
+                'desc' => 'Miscellaneous consumables',
+                'qty' => 1,
+                'price' => $consumableMisc,
+                'total' => $consumableMisc,
+                'json' => json_encode(['consumable_misc' => true]),
+            ]);
+        } elseif ($costConsumables > 0 && $consumableCatalogTotal <= 0) {
+            $stmtItem->execute([
+                'eid' => $est_id,
+                'type' => 'Material',
+                'desc' => 'Consumables',
+                'qty' => 1,
+                'price' => $costConsumables,
+                'total' => $costConsumables,
+                'json' => json_encode(['consumable_rollup' => true]),
+            ]);
+        }
+
+        $labourTotal = parseCurrency($_POST['cost_labour'] ?? 0);
+        if ($labourTotal > 0) {
+            $stmtItem->execute([
+                'eid' => $est_id,
+                'type' => 'Labor',
+                'desc' => 'Overtime & Supervision',
+                'qty' => 1,
+                'price' => $labourTotal,
+                'total' => $labourTotal,
+                'json' => null,
+            ]);
         }
 
         $pdo->commit();

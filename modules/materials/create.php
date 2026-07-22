@@ -3,9 +3,10 @@ require_once __DIR__ . '/../../config/app.php';
 checkAuth();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
+require_once __DIR__ . '/../../libs/MaterialSpecMigrator.php';
+require_once __DIR__ . '/../../includes/material_match_helper.php';
 permissions_require_one_of(['manage_materials']);
-
-
+MaterialSpecMigrator::ensure($pdo);
 $categories = $pdo->query("SELECT * FROM material_categories ORDER BY name")->fetchAll();
 
 include '../../includes/header.php';
@@ -59,6 +60,8 @@ include '../../includes/header.php';
             <label class="block text-gray-700 font-semibold mb-2">Description</label>
             <textarea name="description" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"></textarea>
         </div>
+
+        <?php include __DIR__ . '/spec_fields_partial.php'; ?>
 
         <div class="flex justify-end gap-4">
             <a href="list" class="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400 transition">Cancel</a>

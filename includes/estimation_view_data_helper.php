@@ -18,8 +18,101 @@ function estimation_safe_fetch(PDO $pdo, string $sql, array $params = []): array
 }
 
 /**
+ * @return array<string, mixed>
+ */
+function estimation_decode_item_details(?string $json): array
+{
+    if ($json === null || $json === '') {
+        return [];
+    }
+    $decoded = json_decode($json, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * Split estimation_items into standard materials, section roll-ups, and other lines.
+ *
+ * @param array<int, array<string, mixed>> $items
+ * @return array{
+ *     standard_materials: array<int, array<string, mixed>>,
+ *     consumables: array<int, array<string, mixed>>,
+ *     rollup_items: array<int, array<string, mixed>>,
+ *     other_items: array<int, array<string, mixed>>
+ * }
+ */
+function estimation_partition_line_items(array $items): array
+{
+    $standardNames = array_map('strtolower', [
+        'Proofing Paper',
+        'Film',
+        'Plate',
+        'Colour Separation',
+    ]);
+    $rollupDescriptions = array_map('strtolower', [
+        'Paper Stock',
+        'Ink',
+        'Binding Materials',
+        'Pre-press Labour',
+        'Press Labour',
+        'Finishing Labour',
+        'Overtime & Supervision',
+    ]);
+    $consumableDescriptions = array_map('strtolower', [
+        'Consumables',
+        'Miscellaneous consumables',
+    ]);
+
+    $standardMaterials = [];
+    $consumables = [];
+    $rollupItems = [];
+    $otherItems = [];
+
+    foreach ($items as $row) {
+        $details = estimation_decode_item_details($row['details_json'] ?? null);
+        $description = trim((string) ($row['description'] ?? ''));
+        $descKey = strtolower($description);
+
+        if (!empty($details['consumable'])
+            || !empty($details['consumable_misc'])
+            || !empty($details['consumable_rollup'])
+            || in_array($descKey, $consumableDescriptions, true)) {
+            $consumables[] = $row;
+            continue;
+        }
+
+        if (!empty($details['multi_paper']) || !empty($details['binding']) || isset($details['mode'])) {
+            $rollupItems[] = $row;
+            continue;
+        }
+
+        if (in_array($descKey, $rollupDescriptions, true)) {
+            $rollupItems[] = $row;
+            continue;
+        }
+
+        if (!empty($details['material_id']) || in_array($descKey, $standardNames, true)) {
+            $standardMaterials[] = $row;
+            continue;
+        }
+
+        $otherItems[] = $row;
+    }
+
+    return [
+        'standard_materials' => $standardMaterials,
+        'consumables' => $consumables,
+        'rollup_items' => $rollupItems,
+        'other_items' => $otherItems,
+    ];
+}
+
+/**
  * @return array{
  *     items: array<int, array<string, mixed>>,
+ *     standard_materials: array<int, array<string, mixed>>,
+ *     consumables: array<int, array<string, mixed>>,
+ *     rollup_items: array<int, array<string, mixed>>,
+ *     other_items: array<int, array<string, mixed>>,
  *     papers: array<int, array<string, mixed>>,
  *     inkRows: array<int, array<string, mixed>>,
  *     binding: array<int, array<string, mixed>>,
@@ -40,7 +133,11 @@ function estimation_load_detail_bundle(PDO $pdo, int $estimationId): array
     );
     $papers = estimation_safe_fetch(
         $pdo,
-        'SELECT * FROM estimation_papers WHERE estimation_id = :id ORDER BY sort_order, id',
+        'SELECT ep.*, m.name AS material_name
+         FROM estimation_papers ep
+         LEFT JOIN materials m ON m.id = ep.material_id
+         WHERE ep.estimation_id = :id
+         ORDER BY ep.sort_order, ep.id',
         $params
     );
     $inkRows = estimation_safe_fetch(
@@ -79,8 +176,26 @@ function estimation_load_detail_bundle(PDO $pdo, int $estimationId): array
         $finishing
     );
 
+    $partition = estimation_partition_line_items($items);
+    $subtotals['standard_materials'] = array_sum(array_map(
+        static fn(array $row): float => (float) ($row['total_price'] ?? 0),
+        $partition['standard_materials']
+    ));
+    $subtotals['other_items'] = array_sum(array_map(
+        static fn(array $row): float => (float) ($row['total_price'] ?? 0),
+        $partition['other_items']
+    ));
+    $subtotals['consumables'] = array_sum(array_map(
+        static fn(array $row): float => (float) ($row['total_price'] ?? 0),
+        $partition['consumables']
+    ));
+
     return [
         'items' => $items,
+        'standard_materials' => $partition['standard_materials'],
+        'consumables' => $partition['consumables'],
+        'rollup_items' => $partition['rollup_items'],
+        'other_items' => $partition['other_items'],
         'papers' => $papers,
         'inkRows' => $inkRows,
         'binding' => $binding,

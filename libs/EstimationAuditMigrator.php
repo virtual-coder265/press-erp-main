@@ -127,12 +127,16 @@ class EstimationAuditMigrator
             );
 
             self::ensureDraftVersionsTable($pdo);
+            self::ensureDraftVersionStepUnique($pdo);
 
             require_once __DIR__ . '/../includes/estimation_detail_dedup_helper.php';
             estimation_deduplicate_detail_rows($pdo);
 
             require_once __DIR__ . '/MoneySchemaMigrator.php';
             MoneySchemaMigrator::ensure($pdo);
+
+            require_once __DIR__ . '/MaterialSpecMigrator.php';
+            MaterialSpecMigrator::ensure($pdo);
         } catch (Throwable $e) {
             // Never let the migrator break the page render; just log it.
             error_log('EstimationAuditMigrator failed: ' . $e->getMessage());
@@ -171,6 +175,51 @@ class EstimationAuditMigrator
                     FOREIGN KEY (`estimation_id`) REFERENCES `estimations` (`id`) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
         );
+    }
+
+    /**
+     * One checkpoint row per wizard step (8 steps). Dedupe legacy rows and add a unique index.
+     */
+    private static function ensureDraftVersionStepUnique(PDO $pdo): void
+    {
+        $tableStmt = $pdo->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'estimation_draft_versions'"
+        );
+        if ((int) $tableStmt->fetchColumn() === 0) {
+            return;
+        }
+
+        try {
+            $pdo->exec(
+                "DELETE v1 FROM estimation_draft_versions v1
+                 INNER JOIN estimation_draft_versions v2
+                   ON v1.estimation_id = v2.estimation_id
+                  AND v1.draft_step = v2.draft_step
+                  AND v1.id < v2.id"
+            );
+        } catch (Throwable $e) {
+            error_log('EstimationAuditMigrator draft version dedupe failed: ' . $e->getMessage());
+        }
+
+        $indexStmt = $pdo->query(
+            "SELECT COUNT(*) FROM information_schema.STATISTICS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'estimation_draft_versions'
+               AND INDEX_NAME = 'uk_estimation_draft_step'"
+        );
+        if ((int) $indexStmt->fetchColumn() > 0) {
+            return;
+        }
+
+        try {
+            $pdo->exec(
+                "ALTER TABLE estimation_draft_versions
+                 ADD UNIQUE KEY uk_estimation_draft_step (estimation_id, draft_step)"
+            );
+        } catch (Throwable $e) {
+            error_log('EstimationAuditMigrator draft step unique index failed: ' . $e->getMessage());
+        }
     }
 
     /**

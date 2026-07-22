@@ -192,12 +192,45 @@ unset($_SESSION['success'], $_SESSION['error']);
     </div>
 </div>
 
-<?php if (!empty($items)): ?>
+<?php if (!empty($standard_materials)): ?>
+    <div class="bg-white shadow rounded-lg p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-gray-700">Standard materials</h3>
+            <span class="text-sm text-gray-500">
+                Subtotal: <strong class="text-gray-800">MK <?php echo number_format($subtotals['standard_materials'], 2); ?></strong>
+            </span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th>
+                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate / unit</th>
+                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    <?php foreach ($standard_materials as $row): ?>
+                        <tr>
+                            <td class="px-4 py-2 text-sm text-gray-800"><?php echo htmlspecialchars($row['description'] ?: '—'); ?></td>
+                            <td class="px-4 py-2 text-sm text-gray-700 text-right"><?php echo $row['quantity'] !== null ? number_format((float) $row['quantity'], 2) : '—'; ?></td>
+                            <td class="px-4 py-2 text-sm text-gray-700 text-right"><?php echo $row['unit_price'] !== null ? number_format((float) $row['unit_price'], 2) : '—'; ?></td>
+                            <td class="px-4 py-2 text-sm font-semibold text-gray-900 text-right"><?php echo number_format((float) $row['total_price'], 2); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+<?php endif; ?>
+
+<?php if (!empty($other_items)): ?>
     <div class="bg-white shadow rounded-lg p-6 mb-6">
         <div class="flex items-center justify-between mb-4">
             <h3 class="text-lg font-bold text-gray-700">Line items</h3>
             <span class="text-sm text-gray-500">
-                Subtotal: <strong class="text-gray-800">MK <?php echo number_format($subtotals['items'], 2); ?></strong>
+                Subtotal: <strong class="text-gray-800">MK <?php echo number_format($subtotals['other_items'], 2); ?></strong>
             </span>
         </div>
         <div class="overflow-x-auto">
@@ -212,7 +245,7 @@ unset($_SESSION['success'], $_SESSION['error']);
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                    <?php foreach ($items as $row): ?>
+                    <?php foreach ($other_items as $row): ?>
                         <tr>
                             <td class="px-4 py-2 text-sm text-gray-800"><?php echo htmlspecialchars($row['description'] ?: '—'); ?></td>
                             <td class="px-4 py-2 text-sm text-gray-500"><?php echo htmlspecialchars($row['item_type'] ?: '—'); ?></td>
@@ -239,6 +272,7 @@ unset($_SESSION['success'], $_SESSION['error']);
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Catalog Material</th>
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
                         <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Grammage</th>
@@ -251,6 +285,7 @@ unset($_SESSION['success'], $_SESSION['error']);
                 <tbody class="divide-y divide-gray-100">
                     <?php foreach ($papers as $row): ?>
                         <tr>
+                            <td class="px-4 py-2 text-sm text-gray-600"><?php echo htmlspecialchars($row['material_name'] ?? ($row['material_id'] ? 'Linked #' . (int) $row['material_id'] : '—')); ?></td>
                             <td class="px-4 py-2 text-sm text-gray-800"><?php echo htmlspecialchars($row['paper_type'] ?: '—'); ?></td>
                             <td class="px-4 py-2 text-sm text-gray-700"><?php echo htmlspecialchars($row['paper_size'] ?: '—'); ?></td>
                             <td class="px-4 py-2 text-sm text-gray-700 text-right"><?php echo number_format((float) $row['paper_grammage'], 2); ?></td>
@@ -451,18 +486,58 @@ unset($_SESSION['success'], $_SESSION['error']);
     </div>
 <?php endif; ?>
 
+<?php if (!empty($consumables)): ?>
+    <div class="bg-white shadow rounded-lg p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-gray-700">Printing consumables</h3>
+            <span class="text-sm text-gray-500">
+                Subtotal: <strong class="text-gray-800">MK <?php echo number_format($subtotals['consumables'] ?? 0, 2); ?></strong>
+            </span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
+                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th>
+                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th>
+                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    <?php foreach ($consumables as $row):
+                        $details = estimation_decode_item_details($row['details_json'] ?? null);
+                        $unit = trim((string) ($details['unit'] ?? ''));
+                        ?>
+                        <tr>
+                            <td class="px-4 py-2 text-sm text-gray-800"><?php echo htmlspecialchars($row['description'] ?: '—'); ?></td>
+                            <td class="px-4 py-2 text-sm text-gray-700"><?php echo htmlspecialchars($unit !== '' ? $unit : '—'); ?></td>
+                            <td class="px-4 py-2 text-sm text-gray-700 text-right"><?php echo $row['quantity'] !== null ? number_format((float) $row['quantity'], 2) : '—'; ?></td>
+                            <td class="px-4 py-2 text-sm text-gray-700 text-right"><?php echo $row['unit_price'] !== null ? number_format((float) $row['unit_price'], 2) : '—'; ?></td>
+                            <td class="px-4 py-2 text-sm font-semibold text-gray-900 text-right"><?php echo number_format((float) $row['total_price'], 2); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+<?php endif; ?>
+
 <div class="bg-white shadow rounded-lg p-6 mb-6">
     <h3 class="text-lg font-bold text-gray-700 mb-4">Totals</h3>
     <dl class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
         <?php
         $totalsRows = [
-            'Line items'         => $subtotals['items'],
-            'Paper'              => $subtotals['papers'],
-            'Ink'                => $subtotals['ink'],
-            'Binding materials'  => $subtotals['binding'],
-            'Pre-press labour'   => $subtotals['prepress'],
-            'Press labour'       => $subtotals['press'],
-            'Finishing labour'   => $subtotals['finishing'],
+            'Standard materials'   => $subtotals['standard_materials'] ?? 0,
+            'Line items'           => $subtotals['other_items'] ?? 0,
+            'Paper'                => $subtotals['papers'],
+            'Ink'                  => $subtotals['ink'],
+            'Binding materials'    => $subtotals['binding'],
+            'Pre-press labour'     => $subtotals['prepress'],
+            'Press labour'         => $subtotals['press'],
+            'Finishing labour'     => $subtotals['finishing'],
+            'Printing consumables' => $subtotals['consumables'] ?? (float) ($est['cost_consumables_amount'] ?? 0),
         ];
         foreach ($totalsRows as $label => $value):
             if ((float) $value <= 0) continue; ?>

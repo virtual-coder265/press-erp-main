@@ -6,6 +6,8 @@ require_once __DIR__ . '/../../includes/permissions_helper.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
 require_once __DIR__ . '/../../libs/ProductionLabourMigrator.php';
 require_once __DIR__ . '/../../includes/estimation_draft_restore_helper.php';
+require_once __DIR__ . '/../../includes/estimation_access_helper.php';
+require_once __DIR__ . '/../../includes/material_match_helper.php';
 permissions_require_one_of(['manage_estimations']);
 EstimationAuditMigrator::ensure($pdo);
 ProductionLabourMigrator::ensure($pdo);
@@ -16,9 +18,7 @@ if (!$est_id) {
     redirect('list?error=Invalid estimation ID');
 }
 
-$stmt = $pdo->prepare("SELECT * FROM estimations WHERE id = :id AND created_by = :user AND status = 'Draft'");
-$stmt->execute(['id' => $est_id, 'user' => $_SESSION['user_id']]);
-$estimation = $stmt->fetch(PDO::FETCH_ASSOC);
+$estimation = estimation_fetch_draft_row($pdo, $est_id);
 
 if (!$estimation) {
     redirect('list?error=Draft estimation not found or unauthorized');
@@ -41,6 +41,13 @@ $binding_materials = array_filter($all_materials, fn($m) => strtolower($m['categ
 $binding_cat_id = null;
 $catStmt = $pdo->query("SELECT id FROM material_categories WHERE name='Binding Materials' LIMIT 1");
 $binding_cat_id = $catStmt->fetchColumn();
+
+$paper_cat_id = null;
+$paperCatStmt = $pdo->query("SELECT id FROM material_categories WHERE name='Printing Papers' LIMIT 1");
+$paper_cat_id = $paperCatStmt->fetchColumn();
+
+$consumable_materials = array_filter($all_materials, fn($m) => strtolower($m['category_name'] ?? '') === 'printing consumables');
+$ink_materials = array_filter($all_materials, fn($m) => strtolower($m['category_name'] ?? '') === 'printing inks');
 
 $all_labour_tasks = ProductionLabourMigrator::fetchTasks($pdo);
 $prepress_labour_tasks = array_values(array_filter($all_labour_tasks, fn($t) => ($t['section'] ?? '') === 'prepress'));
@@ -111,7 +118,7 @@ include '../../includes/header.php';
             <?php endif; ?>
         </div>
         <?php if ($draft_repaired): ?>
-        <p class="text-xs text-amber-800 mt-1 font-semibold">Fields rebuilt from saved data — draft snapshot was empty.</p>
+        <p class="text-xs text-amber-800 mt-1 font-semibold">Fields rebuilt from saved line items — any incomplete draft snapshot was merged with stored data.</p>
         <?php else: ?>
         <p class="text-xs text-gray-500 mt-1">Changes auto-save to this draft only.</p>
         <?php endif; ?>
@@ -127,7 +134,7 @@ include '../../includes/header.php';
             <div id="draftHistoryPanel"
                 class="hidden absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 overflow-hidden">
                 <div class="px-3 py-2 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    Recent versions
+                    Step checkpoints (8 steps)
                 </div>
                 <div id="draftHistoryList" class="max-h-64 overflow-y-auto">
                     <p class="px-3 py-4 text-sm text-gray-500">Loading…</p>
@@ -224,9 +231,12 @@ include '../../includes/header.php';
             saveDraft: 'save_draft',
             discardDraft: 'discard_draft',
             draftVersions: 'draft_versions',
+            materialSearch: <?php echo json_encode(BASE_URL . 'modules/materials/search.php'); ?>,
+            materialSave: <?php echo json_encode(BASE_URL . 'modules/materials/save.php'); ?>,
             sessionPing: <?php echo json_encode(BASE_URL . 'modules/auth/session_ping'); ?>,
             reauth: <?php echo json_encode(BASE_URL . 'modules/auth/reauth'); ?>
-        }
+        },
+        stdMaterialSlots: <?php echo json_encode(ESTIMATION_STD_MATERIAL_SLOTS); ?>
     };
 
     function openDiscardModal() {

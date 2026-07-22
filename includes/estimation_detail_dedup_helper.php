@@ -47,11 +47,11 @@ function estimation_detail_dedup_specs(): array
         ],
         [
             'table' => 'estimation_papers',
-            'match' => ['paper_type', 'paper_size', 'paper_grammage', 'paper_color', 'paper_sheets', 'paper_rate', 'paper_total'],
+            'match' => ['material_id', 'paper_type', 'paper_size', 'paper_grammage', 'paper_color', 'paper_sheets', 'paper_rate', 'paper_total'],
         ],
         [
             'table' => 'estimation_ink_colours',
-            'match' => ['colour_name', 'kgs', 'rate', 'total'],
+            'match' => ['material_id', 'colour_name', 'kgs', 'rate', 'total'],
         ],
         [
             'table' => 'estimation_binding_materials',

@@ -83,32 +83,29 @@
 
         <!-- ===== STEP 2: Materials ===== -->
         <?php
-        $stds = [];
-        foreach ($all_materials as $m)
-            $stds[$m['name']] = $m;
-        $getRate = fn($name) => $stds[$name]['rate'] ?? 0;
-        $getId = fn($name) => $stds[$name]['id'] ?? '';
+        require_once __DIR__ . '/../../includes/material_match_helper.php';
         ?>
         <div id="step-2" class="step-content hidden">
             <h2 class="text-2xl font-bold text-gray-800 mb-6">Standard Materials</h2>
+            <p class="text-sm text-gray-500 mb-6">Select the size or dimensions for each item; rates are pulled from the materials catalog.</p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
-                <?php
-                $stdCards = [
-                    'Proofing Paper' => 'No. of Sheets',
-                    'Film' => 'No. of Pieces',
-                    'Plate' => 'No. of Plates',
-                    'Colour Separation' => 'No. of Sets',
-                ];
-                foreach ($stdCards as $matName => $qtyLabel): ?>
-                    <div class="bg-white border border-gray-100 shadow-sm rounded-xl p-6 transition-all hover:shadow-md">
-                        <h3 class="font-bold text-gray-800 mb-4 flex justify-between">
-                            <span><?php echo $matName; ?></span>
-                            <input type="hidden" name="material_id[]" value="<?php echo $getId($matName); ?>">
-                        </h3>
+                <?php foreach (ESTIMATION_STD_MATERIAL_SLOTS as $slot): ?>
+                    <div class="bg-white border border-gray-100 shadow-sm rounded-xl p-6 transition-all hover:shadow-md std-material-card"
+                        data-std-key="<?php echo htmlspecialchars($slot['key']); ?>"
+                        data-material-kind="<?php echo htmlspecialchars($slot['material_kind']); ?>"
+                        data-stock-type="<?php echo htmlspecialchars($slot['stock_type'] ?? ''); ?>">
+                        <h3 class="font-bold text-gray-800 mb-4"><?php echo htmlspecialchars($slot['label']); ?></h3>
+                        <div class="mb-4">
+                            <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Size / Dimensions</label>
+                            <select name="std_mat_dimensions[]" class="std-mat-dimensions w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500">
+                                <option value="">Select size…</option>
+                            </select>
+                            <p class="text-xs text-gray-400 mt-1 std-mat-selected-name"></p>
+                        </div>
+                        <input type="hidden" name="material_id[]" class="std-mat-id" value="">
                         <div class="grid grid-cols-3 gap-4">
                             <div>
-                                <label
-                                    class="block text-xs font-semibold text-gray-500 uppercase mb-1"><?php echo $qtyLabel; ?></label>
+                                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1"><?php echo htmlspecialchars($slot['qty_label']); ?></label>
                                 <input type="number" name="material_qty[]"
                                     class="w-full px-3 py-2 bg-gray-50 border-none rounded-lg focus:ring-2 focus:ring-green-500 std-calc-qty"
                                     placeholder="0">
@@ -116,8 +113,8 @@
                             <div>
                                 <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Rate / Unit</label>
                                 <input type="number" step="0.01" name="material_rate[]"
-                                    value="<?php echo $getRate($matName); ?>"
-                                    class="w-full px-3 py-2 bg-gray-50 border-none rounded-lg focus:ring-2 focus:ring-green-500 std-calc-rate">
+                                    class="w-full px-3 py-2 bg-gray-50 border-none rounded-lg focus:ring-2 focus:ring-green-500 std-calc-rate"
+                                    value="0">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Total (MK)</label>
@@ -133,14 +130,23 @@
 
         <!-- ===== STEP 3: Paper (Multi-entry) ===== -->
         <div id="step-3" class="step-content hidden">
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-2xl font-bold text-gray-800">Paper</h2>
-                <button type="button" id="add-paper-btn"
-                    class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center text-sm shadow-sm">
-                    <i data-lucide="plus" class="mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i> Add Paper
-                </button>
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800">Paper</h2>
+                    <p class="text-sm text-gray-500 mt-1">Pick stock specs from the catalog — rates fill in automatically when matched.</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" onclick="openPaperQuickAddModal()"
+                        class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition flex items-center text-sm shadow-sm">
+                        <i data-lucide="plus" class="mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i> New Catalog Paper
+                    </button>
+                    <button type="button" id="add-paper-btn"
+                        class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center text-sm shadow-sm">
+                        <i data-lucide="layers" class="mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i> Add Paper Row
+                    </button>
+                </div>
             </div>
-            <div id="paper-entries" class="space-y-4">
+            <div id="paper-entries" class="space-y-5">
                 <!-- Default 4 paper entries rendered by JS -->
             </div>
             <div class="mt-4 bg-gray-50 p-4 rounded-lg flex justify-between items-center">
@@ -220,6 +226,12 @@
 
             <!-- Ink Colour Breakdown -->
             <div id="ink-breakdown-panel" class="border border-gray-200 rounded-lg p-6">
+                <div class="mb-4">
+                    <label class="block text-gray-700 font-semibold mb-2">Ink Brand / Type (optional filter)</label>
+                    <select id="ink-brand-filter" class="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg">
+                        <option value="">All brands / types</option>
+                    </select>
+                </div>
                 <div class="flex justify-between items-center mb-4">
                     <div>
                         <h3 class="text-lg font-bold text-gray-800">Ink Colour Breakdown</h3>
@@ -265,18 +277,19 @@
 
         <!-- ===== STEP 5: Binding Materials ===== -->
         <div id="step-5" class="step-content hidden">
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-2xl font-bold text-gray-800">Binding Materials</h2>
-                <div class="flex gap-2">
-                    <button type="button" id="add-binding-row"
-                        class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center text-sm shadow-sm">
-                        <i data-lucide="plus" class="mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i> Add Material
-                    </button>
-                    <button type="button" onclick="openBindingAddModal()"
-                        class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition flex items-center text-sm shadow-sm">
-                        <i data-lucide="package" class="mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i> New Material
-                    </button>
-                </div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">Binding Materials</h2>
+            <p class="text-sm text-gray-500 mb-4">Add a row for each binding item on this job, or add new items to the catalog.</p>
+            <div class="flex items-center gap-2 mb-6">
+                <button type="button" id="add-binding-row"
+                    class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition inline-flex items-center text-sm shadow-sm whitespace-nowrap"
+                    title="Add another binding line to this estimation">
+                    <i data-lucide="list-plus" class="mr-1.5 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Add Row
+                </button>
+                <button type="button" onclick="openBindingAddModal(true)"
+                    class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition inline-flex items-center text-sm shadow-sm whitespace-nowrap"
+                    title="Create a new binding material in the catalog">
+                    <i data-lucide="plus" class="mr-1.5 inline-block h-4 w-4 flex-shrink-0" aria-hidden="true"></i> Add to Catalog
+                </button>
             </div>
             <div class="overflow-x-auto bg-gray-50 p-4 rounded-xl">
                 <table class="min-w-full" id="binding-table">
@@ -302,37 +315,55 @@
 
             <template id="binding-row-template">
                 <tr class="binding-row">
-                    <td class="px-3 py-3">
-                        <select name="binding_mat_id[]" class="w-full border-gray-300 rounded-lg binding-mat-select">
-                            <option value="">Select Material</option>
-                            <?php foreach ($binding_materials as $bm): ?>
-                                <option value="<?php echo $bm['id']; ?>" data-rate="<?php echo $bm['rate']; ?>"
-                                    data-unit="<?php echo htmlspecialchars($bm['unit']); ?>">
-                                    <?php echo htmlspecialchars($bm['name']); ?>
-                                    (<?php echo htmlspecialchars($bm['unit']); ?>)
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
+                    <td class="px-3 py-3 align-top">
+                        <div class="grid grid-cols-2 gap-2 mb-2 binding-filter-row">
+                            <select class="binding-filter-stock w-full border-gray-300 rounded-lg text-xs px-2 py-1.5 bg-white">
+                                <option value="">All types</option>
+                            </select>
+                            <select class="binding-filter-color w-full border-gray-300 rounded-lg text-xs px-2 py-1.5 bg-white">
+                                <option value="">All colours</option>
+                            </select>
+                        </div>
+                        <div class="flex items-stretch gap-1.5">
+                            <select name="binding_mat_id[]" class="binding-mat-select flex-1 min-w-0 border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
+                                <option value="">Select material…</option>
+                                <?php foreach ($binding_materials as $bm): ?>
+                                    <option value="<?php echo $bm['id']; ?>" data-rate="<?php echo $bm['rate']; ?>"
+                                        data-unit="<?php echo htmlspecialchars($bm['unit']); ?>"
+                                        data-stock-type="<?php echo htmlspecialchars($bm['stock_type'] ?? ''); ?>"
+                                        data-color="<?php echo htmlspecialchars($bm['color'] ?? ''); ?>"
+                                        data-thickness="<?php echo htmlspecialchars($bm['thickness_mm'] ?? ''); ?>">
+                                        <?php echo htmlspecialchars($bm['name']); ?>
+                                        (<?php echo htmlspecialchars($bm['unit']); ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="button"
+                                class="binding-quick-add inline-flex items-center justify-center w-9 shrink-0 rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 transition"
+                                title="Add to catalog">
+                                <i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i>
+                            </button>
+                        </div>
                     </td>
-                    <td class="px-3 py-3">
+                    <td class="px-3 py-3 align-top">
                         <input type="text" name="binding_mat_unit[]" readonly
-                            class="w-full border-gray-300 rounded-lg binding-mat-unit bg-gray-50" placeholder="unit">
+                            class="w-full border-gray-300 rounded-lg binding-mat-unit bg-gray-50 px-2 py-2 text-sm" placeholder="unit">
                     </td>
-                    <td class="px-3 py-3">
+                    <td class="px-3 py-3 align-top">
                         <input type="number" step="0.01" name="binding_mat_qty[]"
-                            class="w-full border-gray-300 rounded-lg binding-mat-qty" placeholder="0">
+                            class="w-full border-gray-300 rounded-lg binding-mat-qty px-2 py-2 text-sm" placeholder="0">
                     </td>
-                    <td class="px-3 py-3">
+                    <td class="px-3 py-3 align-top">
                         <input type="number" step="0.01" name="binding_mat_rate[]"
-                            class="w-full border-gray-300 rounded-lg binding-mat-rate" placeholder="0.00">
+                            class="w-full border-gray-300 rounded-lg binding-mat-rate px-2 py-2 text-sm" placeholder="0.00">
                     </td>
-                    <td class="px-3 py-3">
+                    <td class="px-3 py-3 align-top">
                         <input type="text" name="binding_mat_total[]" readonly
-                            class="w-full border-none bg-transparent binding-mat-total font-bold text-gray-700"
+                            class="w-full border-none bg-transparent binding-mat-total font-bold text-gray-700 text-sm"
                             value="0.00">
                     </td>
-                    <td class="px-3 py-3 text-right">
-                        <button type="button" class="text-red-500 hover:text-red-700 remove-binding-row">
+                    <td class="px-3 py-3 align-top text-right">
+                        <button type="button" class="text-red-500 hover:text-red-700 remove-binding-row" title="Remove row">
                             <i data-lucide="trash-2" class="h-5 w-5" aria-hidden="true"></i>
                         </button>
                     </td>
@@ -459,16 +490,40 @@
 
         <!-- ===== STEP 7: Consumables ===== -->
         <div id="step-7" class="step-content hidden">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6">Miscellaneous Costs</h2>
-            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-                <i data-lucide="hammer" class="mb-4 inline-block h-16 w-16 text-yellow-600" aria-hidden="true"></i>
-                <p class="text-gray-700">Insert Miscellaneous Costs totals on this step.</p>
-                <div class="mt-4 max-w-xs mx-auto">
-                    <label class="block text-gray-700 font-semibold mb-2">Miscellaneous Costs (MK)</label>
-                    <input type="number" step="0.01" name="cost_miscellaneous"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800">Printing Consumables</h2>
+                    <p class="text-sm text-gray-500 mt-1">Select consumables from the catalog; totals roll into miscellaneous costs.</p>
                 </div>
-            </div>   
+                <button type="button" id="add-consumable-row"
+                    class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center text-sm shadow-sm">
+                    <i data-lucide="plus" class="mr-1 inline-block h-5 w-5 flex-shrink-0" aria-hidden="true"></i> Add Consumable
+                </button>
+            </div>
+            <div class="overflow-x-auto bg-gray-50 p-4 rounded-xl mb-4">
+                <table class="min-w-full" id="consumable-table">
+                    <thead>
+                        <tr class="text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
+                            <th class="px-3 py-3">Product Type</th>
+                            <th class="px-3 py-3">Material</th>
+                            <th class="px-3 py-3">Unit</th>
+                            <th class="px-3 py-3">Quantity</th>
+                            <th class="px-3 py-3">Rate (MK)</th>
+                            <th class="px-3 py-3">Total (MK)</th>
+                            <th class="px-3 py-3"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="consumable-rows"></tbody>
+                </table>
+            </div>
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <label class="block text-gray-700 font-semibold mb-2">Additional Miscellaneous Costs (MK)</label>
+                <input type="number" step="0.01" name="cost_consumables_misc" id="cost_consumables_misc"
+                    class="w-full max-w-xs px-4 py-2 border border-gray-300 rounded-lg calc-final consumables-misc-input"
+                    placeholder="0.00" value="0">
+                <p class="text-xs text-gray-500 mt-2">Manual amount added on top of catalog consumable lines.</p>
+            </div>
+            <input type="hidden" name="cost_consumables" id="cost_consumables" value="0">
         </div>
 
         <!-- ===== STEP 8: Final Totals ===== -->

@@ -26,6 +26,7 @@ $(document).ready(function () {
     let lastAutoSaveTime = null;
     let localSaveTimer = null;
     let serverSaveTimer = null;
+    let fieldAutosaveTimer = null;
     let pendingServerSync = false;
     let syncAfterRestore = false;
     let exitFlushDone = false;
@@ -38,12 +39,445 @@ $(document).ready(function () {
     let autosaveInFlight = null;
     const DEFAULT_PREPRESS_ROWS = 1;
     const DEFAULT_FINISHING_ROWS = 1;
+    const WIZARD_STEP_LABELS = {
+        1: 'Client & Job',
+        2: 'Materials',
+        3: 'Paper',
+        4: 'Ink',
+        5: 'Binding',
+        6: 'Labour',
+        7: 'Consumables',
+        8: 'Totals',
+    };
     const endpoints = wizardConfig.endpoints || {
         saveDraft: 'save_draft',
         discardDraft: 'discard_draft',
         sessionPing: (wizardConfig.baseUrl || '') + 'modules/auth/session_ping',
         reauth: (wizardConfig.baseUrl || '') + 'modules/auth/reauth',
     };
+    const materialSearchUrl = endpoints.materialSearch || '../materials/search.php';
+    const materialSaveUrl = endpoints.materialSave || '../materials/save.php';
+    const stdMaterialSlots = wizardConfig.stdMaterialSlots || [];
+    const INK_COLOR_MAP = { C: 'Cyan', M: 'Magenta', Y: 'Yellow', K: 'Black', Varnish: 'Varnish' };
+    let paperQuickAddTargetEntry = null;
+    let bindingQuickAddTargetRow = null;
+
+    function materialApiRequest(params) {
+        return $.getJSON(materialSearchUrl, params || {});
+    }
+
+    function materialFetchDistinct(field, filters) {
+        return materialApiRequest(Object.assign({ action: 'distinct', field: field }, filters || {}));
+    }
+
+    function materialFetchMatch(filters) {
+        return materialApiRequest(Object.assign({ action: 'match' }, filters || {}));
+    }
+
+    function materialFetchSearch(filters) {
+        return materialApiRequest(filters || {});
+    }
+
+    function populateSelectOptions($select, values, placeholder, selectedValue) {
+        const current = selectedValue != null ? String(selectedValue) : String($select.val() || '');
+        $select.empty();
+        $select.append($('<option>', { value: '', text: placeholder || 'Select…' }));
+        (values || []).forEach(function (val) {
+            const text = val == null ? '' : String(val);
+            if (text === '') {
+                return;
+            }
+            $select.append($('<option>', { value: text, text: text }));
+        });
+        if (current && $select.find('option[value="' + current.replace(/"/g, '\\"') + '"]').length) {
+            $select.val(current);
+        }
+    }
+
+    function initStdMaterialCards() {
+        $('.std-material-card').each(function () {
+            const card = $(this);
+            const kind = card.data('material-kind');
+            const stockType = card.data('stock-type') || '';
+            const filters = { material_kind: kind };
+            if (stockType) {
+                filters.stock_type = stockType;
+            }
+            materialFetchDistinct('dimensions', filters).done(function (resp) {
+                if (resp.status !== 'success') {
+                    return;
+                }
+                populateSelectOptions(card.find('.std-mat-dimensions'), resp.values, 'Select size…');
+            });
+        });
+    }
+
+    function resolveStdMaterialCard(card) {
+        const kind = card.data('material-kind');
+        const stockType = card.data('stock-type') || '';
+        const dimensions = card.find('.std-mat-dimensions').val();
+        const filters = { material_kind: kind };
+        if (stockType) {
+            filters.stock_type = stockType;
+        }
+        if (dimensions) {
+            filters.dimensions = dimensions;
+        }
+        materialFetchMatch(filters).done(function (resp) {
+            const match = resp.match;
+            if (!match) {
+                card.find('.std-mat-id').val('');
+                card.find('.std-mat-selected-name').text('No catalog match — enter rate manually.');
+                return;
+            }
+            card.find('.std-mat-id').val(match.id);
+            card.find('.std-mat-selected-name').text(match.name);
+            card.find('.std-calc-rate').val(match.rate || 0);
+            const qty = parseFloat(card.find('.std-calc-qty').val()) || 0;
+            card.find('.std-calc-total').val(formatCurrency(qty * (parseFloat(match.rate) || 0)));
+            calculateTotals();
+        });
+    }
+
+    function ensureSelectOption($select, value) {
+        if (!value || !$select.length) {
+            return;
+        }
+        const strVal = String(value);
+        if (!$select.find('option').filter(function () { return String($(this).val()) === strVal; }).length) {
+            $select.append($('<option>', { value: strVal, text: strVal }));
+        }
+        $select.val(strVal);
+    }
+
+    function setPaperMatchLabel(entry, message, matched) {
+        const label = entry.find('.paper-match-label');
+        if (!message) {
+            label.empty();
+            return;
+        }
+        const cls = matched
+            ? 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200'
+            : 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200';
+        label.html('<span class="' + cls + '">' + (matched ? '✓ ' : '! ') + message + '</span>');
+    }
+
+    function updatePaperEntryTotal(entry) {
+        const sheets = parseFloat(entry.find('.paper-sheets').val()) || 0;
+        const rate = parseFloat(entry.find('.paper-rate').val()) || 0;
+        entry.find('.paper-total').val(formatCurrency(sheets * rate));
+        updatePaperTotal();
+        calculateTotals();
+    }
+
+    function refreshAllPaperStockTypeOptions() {
+        return materialFetchDistinct('stock_type', { category: 'Printing Papers' }).done(function (resp) {
+            if (resp.status !== 'success') {
+                return;
+            }
+            $('.paper-stock-type').each(function () {
+                populateSelectOptions($(this), resp.values || [], 'Select stock type…', $(this).val());
+            });
+        });
+    }
+
+    function applyPaperMaterialToEntry(entry, material) {
+        if (!entry || !entry.length || !material) {
+            return;
+        }
+        if (material.stock_type) {
+            ensureSelectOption(entry.find('.paper-stock-type'), material.stock_type);
+            entry.find('.paper-stock-type-hidden').val(material.stock_type);
+        }
+        if (material.color) {
+            ensureSelectOption(entry.find('.paper-color-select'), material.color);
+            entry.find('.paper-color-hidden').val(material.color);
+        }
+        if (material.grammage != null && material.grammage !== '') {
+            const gsm = String(material.grammage);
+            ensureSelectOption(entry.find('.paper-grammage-select'), gsm);
+            entry.find('.paper-grammage-hidden').val(gsm);
+        }
+        if (material.dimensions) {
+            ensureSelectOption(entry.find('.paper-dimensions-select'), material.dimensions);
+            entry.find('.paper-size-hidden').val(material.dimensions);
+        }
+        entry.find('.paper-material-id').val(material.material_id || material.id || '');
+        entry.find('.paper-rate').val(material.rate || 0);
+        setPaperMatchLabel(entry, material.name || 'Catalog match', true);
+        updatePaperEntryTotal(entry);
+    }
+
+    function paperSelectField(label, selectClass, hiddenName, hiddenClass, fieldKey, placeholder) {
+        return `
+            <div class="paper-spec-field" data-spec-field="${fieldKey}">
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">${label}</label>
+                <div class="flex items-stretch gap-2">
+                    <select class="${selectClass} flex-1 min-w-0 px-3 py-2.5 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100">
+                        <option value="">${placeholder}</option>
+                    </select>
+                    <button type="button"
+                        class="paper-spec-quick-add inline-flex items-center justify-center w-10 shrink-0 rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-300 transition"
+                        data-spec-field="${fieldKey}" title="Add to catalog">
+                        <i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <input type="hidden" name="${hiddenName}" class="${hiddenClass}" value="">
+            </div>`;
+    }
+
+    function buildPaperCatalogName(stockType, color, grammage, dimensions) {
+        const parts = [];
+        if (grammage) {
+            parts.push(String(grammage).replace(/\.?0+$/, '') + 'gsm');
+        }
+        if (color) {
+            parts.push(color);
+        }
+        if (dimensions) {
+            parts.push(dimensions);
+        }
+        if (stockType) {
+            parts.push(stockType);
+        }
+        return parts.join(' ').trim();
+    }
+
+    function updatePaperAddNamePreview() {
+        const name = buildPaperCatalogName(
+            $('#paper_add_stock_type').val(),
+            $('#paper_add_color').val(),
+            $('#paper_add_grammage').val(),
+            $('#paper_add_dimensions').val()
+        );
+        $('#paper_add_name_preview').text(name || '—');
+        $('#paper_add_generated_name').val(name);
+    }
+
+    function resolvePaperEntry(entry) {
+        const stockType = entry.find('.paper-stock-type').val();
+        const color = entry.find('.paper-color-select').val();
+        const grammage = entry.find('.paper-grammage-select').val();
+        const dimensions = entry.find('.paper-dimensions-select').val();
+        const filters = { category: 'Printing Papers' };
+        if (stockType) {
+            filters.stock_type = stockType;
+        }
+        if (color) {
+            filters.color = color;
+        }
+        if (grammage) {
+            filters.grammage = grammage;
+        }
+        if (dimensions) {
+            filters.dimensions = dimensions;
+        }
+        materialFetchMatch(filters).done(function (resp) {
+            const match = resp.match;
+            if (!match) {
+                entry.find('.paper-material-id').val('');
+                setPaperMatchLabel(entry, 'No catalog match — enter rate manually', false);
+                return;
+            }
+            entry.find('.paper-material-id').val(match.id);
+            setPaperMatchLabel(entry, match.name, true);
+            entry.find('.paper-rate').val(match.rate || 0);
+            if (match.grammage) {
+                ensureSelectOption(entry.find('.paper-grammage-select'), String(match.grammage));
+                entry.find('.paper-grammage-hidden').val(String(match.grammage));
+            }
+            if (match.color) {
+                ensureSelectOption(entry.find('.paper-color-select'), match.color);
+                entry.find('.paper-color-hidden').val(match.color);
+            }
+            if (match.dimensions) {
+                ensureSelectOption(entry.find('.paper-dimensions-select'), match.dimensions);
+                entry.find('.paper-size-hidden').val(match.dimensions);
+            }
+            updatePaperEntryTotal(entry);
+        });
+    }
+
+    function refreshPaperSpecSelects(entry, changedField) {
+        const stockType = entry.find('.paper-stock-type').val() || entry.find('.paper-stock-type-hidden').val();
+        const color = entry.find('.paper-color-select').val() || entry.find('.paper-color-hidden').val();
+        const grammage = entry.find('.paper-grammage-select').val() || entry.find('.paper-grammage-hidden').val();
+        const dimensions = entry.find('.paper-dimensions-select').val() || entry.find('.paper-size-hidden').val();
+        const baseFilters = { category: 'Printing Papers' };
+        if (stockType) {
+            baseFilters.stock_type = stockType;
+        }
+
+        const tasks = [];
+        if (changedField === 'stock_type' || !changedField) {
+            tasks.push(materialFetchDistinct('color', baseFilters).then(function (resp) {
+                populateSelectOptions(entry.find('.paper-color-select'), resp.values || [], 'Select colour…', color);
+                if (color) {
+                    entry.find('.paper-color-hidden').val(color);
+                }
+            }));
+        }
+        const colorFilters = Object.assign({}, baseFilters);
+        const activeColor = entry.find('.paper-color-select').val() || color;
+        if (activeColor) {
+            colorFilters.color = activeColor;
+        }
+        if (changedField === 'stock_type' || changedField === 'color' || !changedField) {
+            tasks.push(materialFetchDistinct('grammage', colorFilters).then(function (resp) {
+                populateSelectOptions(entry.find('.paper-grammage-select'), resp.values || [], 'Select gsm…', grammage);
+                if (grammage) {
+                    entry.find('.paper-grammage-hidden').val(grammage);
+                }
+            }));
+        }
+        const gramFilters = Object.assign({}, colorFilters);
+        const activeGram = entry.find('.paper-grammage-select').val() || grammage;
+        if (activeGram) {
+            gramFilters.grammage = activeGram;
+        }
+        tasks.push(materialFetchDistinct('dimensions', gramFilters).then(function (resp) {
+            populateSelectOptions(entry.find('.paper-dimensions-select'), resp.values || [], 'Size (optional)…', dimensions);
+            if (dimensions) {
+                entry.find('.paper-size-hidden').val(dimensions);
+            }
+        }));
+
+        $.when.apply($, tasks).always(function () {
+            resolvePaperEntry(entry);
+        });
+    }
+
+    function lookupInkRateForColour(colourName, callback) {
+        const mapped = INK_COLOR_MAP[colourName] || colourName;
+        const filters = { category: 'Printing Inks', color: mapped };
+        const brand = $('#ink-brand-filter').val();
+        if (brand) {
+            filters.brand = brand;
+        }
+        materialFetchMatch(filters).done(function (resp) {
+            callback(resp.match || null);
+        });
+    }
+
+    function initInkBrandFilter() {
+        materialFetchDistinct('brand', { category: 'Printing Inks' }).done(function (resp) {
+            populateSelectOptions($('#ink-brand-filter'), resp.values || [], 'All brands / types');
+        });
+    }
+
+    $(document).on('change', '#ink-brand-filter', function () {
+        $('.ink-colour-row').each(function () {
+            const row = $(this);
+            lookupInkRateForColour(row.find('.ink-colour-name').val(), function (match) {
+                if (match) {
+                    row.find('.ink-material-id').val(match.id);
+                    row.find('.ink-colour-rate').val(match.rate || 0);
+                }
+            });
+        });
+        refreshInkCosts(true);
+    });
+
+    function applyBindingFilters(row) {
+        const stockFilter = row.find('.binding-filter-stock').val();
+        const colorFilter = row.find('.binding-filter-color').val();
+        row.find('.binding-mat-select option').each(function () {
+            const opt = $(this);
+            if (!opt.val()) {
+                return;
+            }
+            const stock = String(opt.data('stock-type') || '');
+            const color = String(opt.data('color') || '');
+            let visible = true;
+            if (stockFilter && stock.toLowerCase() !== String(stockFilter).toLowerCase()) {
+                visible = false;
+            }
+            if (colorFilter && color.toLowerCase() !== String(colorFilter).toLowerCase()) {
+                visible = false;
+            }
+            opt.prop('hidden', !visible);
+        });
+    }
+
+    function initBindingFilterSelects(row) {
+        materialFetchDistinct('stock_type', { category: 'Binding Materials' }).done(function (resp) {
+            populateSelectOptions(row.find('.binding-filter-stock'), resp.values || [], 'All types');
+        });
+        materialFetchDistinct('color', { category: 'Binding Materials' }).done(function (resp) {
+            populateSelectOptions(row.find('.binding-filter-color'), resp.values || [], 'All colours');
+        });
+    }
+
+    function addConsumableRow() {
+        const html = `
+        <tr class="consumable-row">
+            <td class="px-3 py-2">
+                <select class="consumable-stock-type w-full border-gray-300 rounded-lg text-sm">
+                    <option value="">All types</option>
+                </select>
+            </td>
+            <td class="px-3 py-2">
+                <select name="consumable_mat_id[]" class="consumable-mat-select w-full border-gray-300 rounded-lg">
+                    <option value="">Select consumable…</option>
+                </select>
+            </td>
+            <td class="px-3 py-2">
+                <input type="text" name="consumable_mat_unit[]" readonly class="consumable-mat-unit w-full border-gray-300 rounded-lg bg-gray-50">
+            </td>
+            <td class="px-3 py-2">
+                <input type="number" step="0.01" name="consumable_mat_qty[]" class="consumable-mat-qty w-full border-gray-300 rounded-lg" placeholder="0">
+            </td>
+            <td class="px-3 py-2">
+                <input type="number" step="0.01" name="consumable_mat_rate[]" class="consumable-mat-rate w-full border-gray-300 rounded-lg" placeholder="0.00">
+            </td>
+            <td class="px-3 py-2">
+                <input type="text" name="consumable_mat_total[]" readonly class="consumable-mat-total w-full border-none bg-transparent font-bold text-gray-700" value="0.00">
+            </td>
+            <td class="px-3 py-2 text-right">
+                <button type="button" class="text-red-500 hover:text-red-700 remove-consumable-row">
+                    <i data-lucide="trash-2" class="h-4 w-4"></i>
+                </button>
+            </td>
+        </tr>`;
+        $('#consumable-rows').append(html);
+        const row = $('#consumable-rows .consumable-row').last();
+        refreshConsumableRowOptions(row);
+        refreshLucide();
+    }
+
+    function refreshConsumableRowOptions(row) {
+        const stockType = row.find('.consumable-stock-type').val();
+        const filters = { category: 'Printing Consumables' };
+        if (stockType) {
+            filters.stock_type = stockType;
+        }
+        materialFetchSearch(filters).done(function (resp) {
+            const select = row.find('.consumable-mat-select');
+            const current = select.val();
+            select.empty().append($('<option>', { value: '', text: 'Select consumable…' }));
+            (resp.materials || []).forEach(function (mat) {
+                select.append($('<option>', {
+                    value: mat.id,
+                    text: mat.name + ' (' + mat.unit + ')',
+                }).attr('data-rate', mat.rate).attr('data-unit', mat.unit));
+            });
+            if (current) {
+                select.val(current);
+            }
+        });
+        materialFetchDistinct('stock_type', { category: 'Printing Consumables' }).done(function (resp) {
+            populateSelectOptions(row.find('.consumable-stock-type'), resp.values || [], 'All types', stockType);
+        });
+    }
+
+    function updateConsumablesTotal() {
+        let total = parseFloat($('#cost_consumables_misc').val()) || 0;
+        $('.consumable-mat-total').each(function () {
+            total += parseInkMoney($(this).val());
+        });
+        $('#cost_consumables').val(formatCurrency(total));
+        calculateTotals();
+    }
 
     function getDraftEstId() {
         const fromWindow = window.draftEstId || wizardConfig.draftEstId;
@@ -182,6 +616,7 @@ $(document).ready(function () {
             paperTypes: $('input[name="paper_type[]"]').map(function () { return $(this).val(); }).get(),
             inkColours: $('input[name="ink_colour[]"]').map(function () { return $(this).val(); }).get(),
             bindingRowCount: $('#binding-rows .binding-row').length,
+            consumableRowCount: $('#consumable-rows .consumable-row').length,
             machineBlockCount: $('.machine-block').length,
             prepressRowCount: $('#prepress-rows .prepress-row').length,
             finishingRowCount: $('#finishing-rows .finishing-row').length,
@@ -278,6 +713,14 @@ $(document).ready(function () {
         if (!fields || typeof fields !== 'object') {
             return;
         }
+        // Legacy drafts stored miscellaneous under cost_miscellaneous.
+        if (fields.cost_miscellaneous !== undefined && fields.cost_consumables === undefined) {
+            fields.cost_consumables = fields.cost_miscellaneous;
+        }
+        if (fields.cost_consumables !== undefined && fields.cost_consumables_misc === undefined) {
+            const parsedMisc = parseInkMoney(fields.cost_consumables);
+            fields.cost_consumables_misc = parsedMisc > 0 ? String(parsedMisc) : fields.cost_consumables;
+        }
         if (Array.isArray(fields)) {
             fields.forEach(function (field) {
                 setFieldValue(field.name, field.value);
@@ -295,16 +738,30 @@ $(document).ready(function () {
         }
 
         $('#paper-entries').empty();
-        (structure.paperTypes && structure.paperTypes.length ? structure.paperTypes : defaultPaperTypes)
-            .forEach(function (type, idx) {
-                addPaperEntry(type, idx === 0);
-            });
+        const paperTypes = structure.paperTypes && structure.paperTypes.length
+            ? structure.paperTypes
+            : defaultPaperTypes;
+        const paperCount = Math.max(
+            paperTypes.length,
+            structure.paperRowCount || 0,
+            defaultPaperTypes.length
+        );
+        for (let idx = 0; idx < paperCount; idx++) {
+            addPaperEntry(paperTypes[idx] || defaultPaperTypes[idx] || '', idx === 0);
+        }
 
         $('#ink-colour-rows').empty();
-        (structure.inkColours && structure.inkColours.length ? structure.inkColours : defaultColours)
-            .forEach(function (colour) {
-                addInkColourRow(colour);
-            });
+        const inkColours = structure.inkColours && structure.inkColours.length
+            ? structure.inkColours
+            : defaultColours;
+        const inkCount = Math.max(
+            inkColours.length,
+            structure.inkRowCount || 0,
+            defaultColours.length
+        );
+        for (let idx = 0; idx < inkCount; idx++) {
+            addInkColourRow(inkColours[idx] || defaultColours[idx] || '');
+        }
 
         $('#binding-rows').empty();
         for (let i = 0; i < (structure.bindingRowCount || 1); i++) {
@@ -328,7 +785,109 @@ $(document).ready(function () {
             addFinishingRow();
         }
 
+        $('#consumable-rows').empty();
+        for (let i = 0; i < (structure.consumableRowCount || 1); i++) {
+            addConsumableRow();
+        }
+
         refreshLucide();
+    }
+
+    function restoreMaterialLinkedFields(fields) {
+        if (!fields) {
+            return;
+        }
+
+        if (Array.isArray(fields.std_mat_dimensions)) {
+            $('.std-material-card').each(function (index) {
+                const card = $(this);
+                const dim = fields.std_mat_dimensions[index];
+                if (dim) {
+                    card.find('.std-mat-dimensions').val(dim);
+                    resolveStdMaterialCard(card);
+                } else if (Array.isArray(fields.material_id) && fields.material_id[index]) {
+                    card.find('.std-mat-id').val(fields.material_id[index]);
+                }
+            });
+        }
+
+        $('.paper-entry').each(function (index) {
+            const entry = $(this);
+            const stockType = Array.isArray(fields.paper_stock_type) ? fields.paper_stock_type[index] : '';
+            if (stockType) {
+                entry.find('.paper-stock-type').val(stockType);
+                entry.find('.paper-stock-type-hidden').val(stockType);
+            }
+            if (Array.isArray(fields.paper_color) && fields.paper_color[index]) {
+                entry.find('.paper-color-hidden').val(fields.paper_color[index]);
+            }
+            if (Array.isArray(fields.paper_grammage) && fields.paper_grammage[index]) {
+                entry.find('.paper-grammage-hidden').val(fields.paper_grammage[index]);
+            }
+            if (Array.isArray(fields.paper_size) && fields.paper_size[index]) {
+                entry.find('.paper-size-hidden').val(fields.paper_size[index]);
+            }
+            if (Array.isArray(fields.paper_material_id) && fields.paper_material_id[index]) {
+                entry.find('.paper-material-id').val(fields.paper_material_id[index]);
+            }
+            refreshPaperSpecSelects(entry);
+        });
+
+        $('.ink-colour-row').each(function (index) {
+            const row = $(this);
+            if (Array.isArray(fields.ink_material_id) && fields.ink_material_id[index]) {
+                row.find('.ink-material-id').val(fields.ink_material_id[index]);
+            } else if (Array.isArray(fields.ink_colour) && fields.ink_colour[index]) {
+                lookupInkRateForColour(fields.ink_colour[index], function (match) {
+                    if (match) {
+                        row.find('.ink-material-id').val(match.id);
+                        if (!row.find('.ink-colour-rate').val() || row.find('.ink-colour-rate').val() === '0') {
+                            row.find('.ink-colour-rate').val(match.rate || 0);
+                        }
+                    }
+                });
+            }
+        });
+
+        if (Array.isArray(fields.consumable_mat_id) && fields.consumable_mat_id.length) {
+            $('.consumable-row').each(function (index) {
+                const row = $(this);
+                const matId = fields.consumable_mat_id[index];
+                if (!matId) {
+                    return;
+                }
+                row.find('.consumable-mat-select').val(String(matId));
+                if (Array.isArray(fields.consumable_mat_unit) && fields.consumable_mat_unit[index]) {
+                    row.find('.consumable-mat-unit').val(fields.consumable_mat_unit[index]);
+                }
+                if (Array.isArray(fields.consumable_mat_qty) && fields.consumable_mat_qty[index]) {
+                    row.find('.consumable-mat-qty').val(fields.consumable_mat_qty[index]);
+                }
+                if (Array.isArray(fields.consumable_mat_rate) && fields.consumable_mat_rate[index]) {
+                    row.find('.consumable-mat-rate').val(fields.consumable_mat_rate[index]);
+                }
+                if (Array.isArray(fields.consumable_mat_total) && fields.consumable_mat_total[index]) {
+                    row.find('.consumable-mat-total').val(fields.consumable_mat_total[index]);
+                } else {
+                    refreshConsumableRowOptions(row);
+                }
+            });
+        }
+
+        if (Array.isArray(fields.binding_mat_id) && fields.binding_mat_id.length) {
+            $('.binding-row').each(function (index) {
+                const row = $(this);
+                const matId = fields.binding_mat_id[index];
+                if (matId) {
+                    row.find('.binding-mat-select').val(String(matId));
+                }
+                if (Array.isArray(fields.binding_mat_unit) && fields.binding_mat_unit[index]) {
+                    row.find('.binding-mat-unit').val(fields.binding_mat_unit[index]);
+                }
+            });
+        }
+
+        updateConsumablesTotal();
     }
 
     /**
@@ -422,10 +981,23 @@ $(document).ready(function () {
             return max;
         };
         return {
-            paperTypes: Array.isArray(fields.paper_type) ? fields.paper_type : defaultPaperTypes,
-            inkColours: Array.isArray(fields.ink_colour) ? fields.ink_colour : defaultColours,
-            bindingRowCount: Math.max(1, count('binding_mat_id')),
-            machineBlockCount: Math.max(1, maxCount(['press_machine_name', 'press_task_id', 'press_mr_hrs'])),
+            paperTypes: Array.isArray(fields.paper_type) && fields.paper_type.length
+                ? fields.paper_type
+                : defaultPaperTypes,
+            paperRowCount: Math.max(
+                defaultPaperTypes.length,
+                maxCount(['paper_type', 'paper_sheets', 'paper_material_id', 'paper_rate', 'paper_total'])
+            ),
+            inkColours: Array.isArray(fields.ink_colour) && fields.ink_colour.length
+                ? fields.ink_colour
+                : defaultColours,
+            inkRowCount: Math.max(
+                defaultColours.length,
+                maxCount(['ink_colour', 'ink_material_id', 'ink_colour_kgs', 'ink_colour_rate', 'ink_colour_pct'])
+            ),
+            bindingRowCount: Math.max(1, maxCount(['binding_mat_id', 'binding_mat_qty', 'binding_mat_rate'])),
+            consumableRowCount: Math.max(1, maxCount(['consumable_mat_id', 'consumable_mat_qty'])),
+            machineBlockCount: Math.max(1, maxCount(['press_machine_name', 'press_task_id', 'press_mr_hrs', 'press_impressions'])),
             prepressRowCount: Math.max(
                 DEFAULT_PREPRESS_ROWS,
                 maxCount(['prepress_name', 'prepress_task_id', 'prepress_hrs', 'prepress_rate'])
@@ -518,14 +1090,22 @@ $(document).ready(function () {
         clearTimeout(localSaveTimer);
         localSaveTimer = setTimeout(function () {
             persistLocallyImmediate(!navigator.onLine || pendingServerSync);
-        }, 800);
+        }, 500);
         clearTimeout(serverSaveTimer);
         serverSaveTimer = setTimeout(function () {
             autosaveDraft(false);
-        }, 4000);
+        }, 1200);
     }
 
-    function buildServerDraftPayload(saveAction) {
+    function scheduleFieldAutosave() {
+        clearTimeout(fieldAutosaveTimer);
+        fieldAutosaveTimer = setTimeout(function () {
+            persistLocallyImmediate(!navigator.onLine || pendingServerSync);
+            autosaveDraft(false, 'autosave');
+        }, 400);
+    }
+
+    function buildServerDraftPayload(saveAction, checkpointStep) {
         const formData = $('form#estimationForm').serializeArray();
         const payload = new FormData();
         formData.forEach(function (field) {
@@ -540,6 +1120,9 @@ $(document).ready(function () {
         payload.append('current_step', currentStep);
         payload.append('action', saveAction || 'autosave');
         payload.append('base_revision', String(localBaseRevision || 0));
+        if (saveAction === 'step_checkpoint' && checkpointStep) {
+            payload.append('checkpoint_step', String(checkpointStep));
+        }
         return payload;
     }
 
@@ -657,6 +1240,7 @@ $(document).ready(function () {
             rebuildFromStructure(structure);
         }
         applyFields(chosen.fields);
+        restoreMaterialLinkedFields(chosen.fields);
         syncLabourTaskSelectsFromNames();
         // Legacy drafts without ink_calc_mode used manual kgs — keep breakdown mode.
         try {
@@ -667,6 +1251,7 @@ $(document).ready(function () {
         } catch (inkModeErr) {
             console.warn('Ink mode restore skipped:', inkModeErr);
         }
+        restoreInkFromSavedFields(chosen.fields);
         if (chosen.meta && chosen.meta.estId) {
             setDraftEstId(chosen.meta.estId);
         }
@@ -686,6 +1271,86 @@ $(document).ready(function () {
         }
         lastSyncedFormFingerprint = formFingerprint(chosen.fields || captureFields());
         recalculateAllSectionTotals();
+        preserveRestoredSectionTotals(chosen.fields);
+    }
+
+    /**
+     * Re-apply saved ink row values after dynamic rows are rebuilt (step 4 resume).
+     */
+    function restoreInkFromSavedFields(fields) {
+        if (!fields || typeof fields !== 'object') {
+            return;
+        }
+
+        if (fields.ink_kgs) {
+            $('#ink_kgs').val(fields.ink_kgs);
+        }
+
+        const formulaKgs = parseFloat($('#ink_kgs').val()) || parseFloat(fields.ink_kgs) || computeFormulaInkKgs();
+
+        $('.ink-colour-row').each(function (index) {
+            const row = $(this);
+
+            if (Array.isArray(fields.ink_colour_pct) && fields.ink_colour_pct[index]) {
+                row.find('.ink-colour-pct').val(fields.ink_colour_pct[index]);
+            } else if (Array.isArray(fields.ink_colour_kgs) && fields.ink_colour_kgs[index] && formulaKgs > 0) {
+                const kgs = parseFloat(fields.ink_colour_kgs[index]) || 0;
+                if (kgs > 0) {
+                    row.find('.ink-colour-pct').val((kgs / formulaKgs * 100).toFixed(2));
+                }
+            }
+
+            if (Array.isArray(fields.ink_colour_kgs) && fields.ink_colour_kgs[index]) {
+                row.find('.ink-colour-kgs').val(fields.ink_colour_kgs[index]);
+            }
+            if (Array.isArray(fields.ink_colour_rate) && fields.ink_colour_rate[index]) {
+                row.find('.ink-colour-rate').val(fields.ink_colour_rate[index]);
+            }
+            if (Array.isArray(fields.ink_colour_total) && fields.ink_colour_total[index]) {
+                const savedTotal = fields.ink_colour_total[index];
+                row.find('.ink-colour-total').val(
+                    String(savedTotal).indexOf('MK') >= 0 ? savedTotal : formatCurrency(parseInkMoney(savedTotal))
+                );
+            }
+        });
+
+        if (fields.cost_ink && parseInkMoney(fields.cost_ink) > 0) {
+            const savedCost = fields.cost_ink;
+            $('#cost_ink').val(String(savedCost).indexOf('MK') >= 0 ? savedCost : formatCurrency(parseInkMoney(savedCost)));
+        }
+    }
+
+    /**
+     * When row-level inputs are missing but saved section totals exist, keep the saved totals
+     * instead of overwriting with zero after recalculateAllSectionTotals().
+     */
+    function preserveRestoredSectionTotals(savedFields) {
+        if (!savedFields || typeof savedFields !== 'object') {
+            return;
+        }
+        const costKeys = [
+            'cost_paper', 'cost_ink', 'cost_binding', 'cost_prepress', 'cost_press',
+            'cost_finishing', 'cost_labour_total', 'cost_consumables', 'subtotal', 'grand_total',
+        ];
+        costKeys.forEach(function (key) {
+            const saved = savedFields[key];
+            if (!saved) {
+                return;
+            }
+            const savedAmt = parseInkMoney(saved);
+            if (savedAmt <= 0) {
+                return;
+            }
+            const $el = $('#' + key);
+            if (!$el.length) {
+                return;
+            }
+            const currentAmt = parseInkMoney($el.val());
+            if (currentAmt <= 0) {
+                $el.val(String(saved).indexOf('MK') >= 0 ? saved : formatCurrency(savedAmt));
+            }
+        });
+        calculateTotals({ skipInkRefresh: true });
     }
 
     function openDraftConflictModal(payload) {
@@ -738,13 +1403,22 @@ $(document).ready(function () {
         updateDraftStatus('Synced · rev ' + localBaseRevision, 'ok');
     }
 
-    function autosaveDraft(forceSync, saveAction) {
+    function autosaveDraft(forceSync, saveAction, checkpointStep) {
         if (conflictModalOpen && saveAction !== 'override' && saveAction !== 'clone') {
             return Promise.resolve();
         }
 
+        saveAction = saveAction || 'autosave';
+        if (syncAfterRestore && saveAction === 'autosave') {
+            saveAction = 'recovered';
+            syncAfterRestore = false;
+        }
+
+        const isStepCheckpoint = saveAction === 'step_checkpoint';
+
         if (
             !forceSync
+            && !isStepCheckpoint
             && saveAction !== 'override'
             && saveAction !== 'clone'
             && !snapshotHasMeaningfulFields({ fields: captureFields() })
@@ -757,15 +1431,10 @@ $(document).ready(function () {
             return persistLocallyImmediate(true);
         }
 
-        if (!saveAction && syncAfterRestore) {
-            saveAction = 'recovered';
-            syncAfterRestore = false;
-        }
-        saveAction = saveAction || 'autosave';
-
         const currentFingerprint = formFingerprint();
         if (
             !forceSync
+            && !isStepCheckpoint
             && saveAction === 'autosave'
             && lastSyncedFormFingerprint
             && currentFingerprint === lastSyncedFormFingerprint
@@ -778,11 +1447,11 @@ $(document).ready(function () {
             return autosaveInFlight;
         }
 
-        const payload = buildServerDraftPayload(saveAction);
+        const payload = buildServerDraftPayload(saveAction, checkpointStep);
         const fetchFn = window.SessionGuard ? SessionGuard.authFetch.bind(SessionGuard) : fetch;
         const originalEstId = getDraftEstId();
 
-        const loaderMessage = (saveAction === 'manual' || forceSync) ? 'Saving draft…' : null;
+        const loaderMessage = (saveAction === 'manual' || isStepCheckpoint || forceSync) ? 'Saving draft…' : null;
         const request = fetchFn(endpoints.saveDraft, {
             method: 'POST',
             body: payload,
@@ -842,6 +1511,12 @@ $(document).ready(function () {
                 return persistLocallyImmediate(false).then(function () {
                     if (result.data.noop) {
                         updateDraftStatus('Synced · rev ' + localBaseRevision, 'ok');
+                    } else if (isStepCheckpoint) {
+                        const stepLabel = WIZARD_STEP_LABELS[checkpointStep] || ('Step ' + checkpointStep);
+                        updateDraftStatus(
+                            'Step saved · ' + stepLabel + ' at ' + lastAutoSaveTime.toLocaleTimeString(),
+                            'ok'
+                        );
                     } else {
                         updateDraftStatus(
                             'Synced · rev ' + localBaseRevision + ' at ' + lastAutoSaveTime.toLocaleTimeString(),
@@ -956,6 +1631,16 @@ $(document).ready(function () {
         const serverSnapshot = snapshotFromServerData(wizardConfig.draftData || window.draftData);
 
         if (wizardConfig.draftHydratedFromDb && serverSnapshot) {
+            applySnapshotToForm(serverSnapshot);
+            lastSyncedFormFingerprint = formFingerprint(serverSnapshot.fields || captureFields());
+            return clearAllDraftStorage().then(function () {
+                return persistLocallyImmediate(false);
+            });
+        }
+
+        const serverFromDatabase = wizardConfig.draftSource
+            && String(wizardConfig.draftSource).indexOf('database') >= 0;
+        if (serverFromDatabase && serverSnapshot && snapshotHasMeaningfulFields(serverSnapshot)) {
             applySnapshotToForm(serverSnapshot);
             lastSyncedFormFingerprint = formFingerprint(serverSnapshot.fields || captureFields());
             return clearAllDraftStorage().then(function () {
@@ -1175,7 +1860,7 @@ $(document).ready(function () {
             return;
         }
 
-        let pendingRestoreRevision = null;
+        let pendingRestoreStep = null;
         let versionsLoaded = false;
 
         function closeHistoryPanel() {
@@ -1186,38 +1871,43 @@ $(document).ready(function () {
             if (restoreModal) {
                 restoreModal.classList.add('hidden');
             }
-            pendingRestoreRevision = null;
+            pendingRestoreStep = null;
         }
 
         function renderVersionList(versions) {
             if (!versions || !versions.length) {
-                listEl.innerHTML = '<p class="px-3 py-4 text-sm text-gray-500">No saved versions yet.</p>';
+                listEl.innerHTML = '<p class="px-3 py-4 text-sm text-gray-500">No step checkpoints yet. Complete a wizard step to create one.</p>';
                 return;
             }
 
             listEl.innerHTML = versions.map(function (item) {
-                const label = item.is_current ? 'Current' : (item.label || ('rev ' + item.revision));
-                const time = formatDraftVersionTime(item.saved_at);
+                const label = item.label || ('Step ' + (item.draft_step || 1));
+                const time = item.saved_at ? formatDraftVersionTime(item.saved_at) : 'Not saved yet';
                 const step = item.draft_step || 1;
-                const restoreBtn = item.is_current
-                    ? '<span class="text-xs text-gray-400">Active</span>'
-                    : '<button type="button" class="draft-version-restore text-xs font-semibold text-amber-700 hover:text-amber-900" data-revision="' + item.revision + '" data-time="' + time.replace(/"/g, '&quot;') + '">Restore</button>';
+                let actionCell;
+                if (item.is_current) {
+                    actionCell = '<span class="text-xs text-gray-400">Active</span>';
+                } else if (item.has_checkpoint) {
+                    actionCell = '<button type="button" class="draft-version-restore text-xs font-semibold text-amber-700 hover:text-amber-900" data-step="' + step + '" data-time="' + time.replace(/"/g, '&quot;') + '">Restore</button>';
+                } else {
+                    actionCell = '<span class="text-xs text-gray-400">No checkpoint</span>';
+                }
 
                 return '<div class="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50">' +
                     '<div class="min-w-0">' +
                     '<p class="text-sm font-semibold text-gray-800">' + label + '</p>' +
-                    '<p class="text-xs text-gray-500">' + time + ' · Step ' + step + '</p>' +
+                    '<p class="text-xs text-gray-500">' + time + '</p>' +
                     '</div>' +
-                    restoreBtn +
+                    actionCell +
                     '</div>';
             }).join('');
 
             listEl.querySelectorAll('.draft-version-restore').forEach(function (btn) {
                 btn.addEventListener('click', function () {
-                    pendingRestoreRevision = parseInt(btn.getAttribute('data-revision'), 10) || null;
-                    const timeLabel = btn.getAttribute('data-time') || 'this version';
+                    pendingRestoreStep = parseInt(btn.getAttribute('data-step'), 10) || null;
+                    const timeLabel = btn.getAttribute('data-time') || 'this step';
                     if (restoreMessage) {
-                        restoreMessage.textContent = 'Replace the current form with the version from ' + timeLabel + '? Unsaved changes will be lost.';
+                        restoreMessage.textContent = 'Replace the current form with the saved checkpoint from ' + timeLabel + '? Unsaved changes will be lost.';
                     }
                     closeHistoryPanel();
                     if (restoreModal) {
@@ -1277,8 +1967,8 @@ $(document).ready(function () {
         if (restoreConfirm) {
             restoreConfirm.addEventListener('click', function () {
                 const estId = getDraftEstId();
-                const revision = pendingRestoreRevision;
-                if (!estId || !revision) {
+                const step = pendingRestoreStep;
+                if (!estId || !step) {
                     closeVersionRestoreModal();
                     return;
                 }
@@ -1286,7 +1976,7 @@ $(document).ready(function () {
                 const body = new URLSearchParams();
                 body.append('action', 'restore');
                 body.append('est_id', String(estId));
-                body.append('revision', String(revision));
+                body.append('step', String(step));
 
                 restoreConfirm.disabled = true;
                 fetch(versionsEndpoint, {
@@ -1320,8 +2010,8 @@ $(document).ready(function () {
                         persistLocallyImmediate(false);
                         syncUnsavedBaseline();
                         versionsLoaded = false;
-                        showAutoSaveNotification('Version restored');
-                        updateDraftStatus('Restored · rev ' + localBaseRevision, 'ok');
+                        showAutoSaveNotification('Step checkpoint restored');
+                        updateDraftStatus('Restored · Step ' + step, 'ok');
                     })
                     .catch(function (err) {
                         alert('Could not restore version: ' + err.message);
@@ -1413,26 +2103,35 @@ $(document).ready(function () {
         return 'MK' + formatted;
     }
 
-    // Navigation
+    // Navigation — checkpoint the completed step before changing steps.
     $('.next-step').click(function () {
-        if (validateStep(currentStep)) {
-            persistLocallyImmediate(!navigator.onLine || pendingServerSync);
-            autosaveDraft(false);
+        if (!validateStep(currentStep)) {
+            return;
+        }
+        const stepToCheckpoint = currentStep;
+        persistLocallyImmediate(!navigator.onLine || pendingServerSync);
+        autosaveDraft(true, 'step_checkpoint', stepToCheckpoint).finally(function () {
             currentStep++;
             showStep(currentStep);
-        }
+        });
     });
 
     $('.prev-step').click(function () {
+        const stepToCheckpoint = currentStep;
         persistLocallyImmediate(!navigator.onLine || pendingServerSync);
-        autosaveDraft(false);
-        currentStep--;
-        showStep(currentStep);
+        autosaveDraft(true, 'step_checkpoint', stepToCheckpoint).finally(function () {
+            currentStep--;
+            showStep(currentStep);
+        });
     });
 
     $('form#estimationForm').on('change input', function () {
         calculateTotals();
         persistLocallyDebounced();
+    });
+
+    $('form#estimationForm').on('blur', 'input, select, textarea', function () {
+        scheduleFieldAutosave();
     });
 
     // Clean up auto-save timer on page unload
@@ -1538,58 +2237,157 @@ $(document).ready(function () {
             : '';
 
         const html = `
-        <div class="paper-entry border border-gray-200 rounded-xl p-5 bg-gray-50">
-            <div class="flex justify-between items-center mb-4">
-                <h4 class="font-bold text-gray-700">Paper Entry</h4>
+        <div class="paper-entry bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+            <div class="flex justify-between items-center px-5 py-4 bg-gray-50 border-b border-gray-200">
+                <div>
+                    <h4 class="font-bold text-gray-800">${paperType ? paperType + ' Paper' : 'Paper Entry'}</h4>
+                    <p class="text-xs text-gray-500 mt-0.5">Label for this run (Cover, Original, etc.)</p>
+                </div>
                 ${deleteBtn}
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <input type="hidden" name="paper_material_id[]" class="paper-material-id" value="">
+            <div class="p-5 space-y-5">
                 <div>
-                    <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Paper Type / Label</label>
+                    <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Paper Type / Label</label>
                     <input type="text" name="paper_type[]" value="${paperType}"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-green-500" placeholder="e.g. Cover">
+                        class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                        placeholder="e.g. Cover, Original, Duplicate">
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Size (mm)</label>
-                    <input type="text" name="paper_size[]"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="e.g. 210x297">
+                <div class="rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <div>
+                            <p class="text-sm font-semibold text-gray-800">Catalog Specification</p>
+                            <p class="text-xs text-gray-500">Select specs or use <span class="font-medium text-green-700">+</span> to add missing items.</p>
+                        </div>
+                        <button type="button"
+                            class="paper-row-quick-add inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 bg-white text-green-700 text-xs font-semibold hover:bg-green-50 transition">
+                            <i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i> New paper
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        ${paperSelectField('Stock Type', 'paper-stock-type', 'paper_stock_type[]', 'paper-stock-type-hidden', 'stock_type', 'Select stock type…')}
+                        ${paperSelectField('Colour', 'paper-color-select', 'paper_color[]', 'paper-color-hidden', 'color', 'Select colour…')}
+                        ${paperSelectField('Grammage (gsm)', 'paper-grammage-select', 'paper_grammage[]', 'paper-grammage-hidden', 'grammage', 'Select gsm…')}
+                        <div class="paper-spec-field" data-spec-field="dimensions">
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Size</label>
+                            <div class="flex items-stretch gap-2">
+                                <select class="paper-dimensions-select flex-1 min-w-0 px-3 py-2.5 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100">
+                                    <option value="">Size (optional)…</option>
+                                </select>
+                                <button type="button"
+                                    class="paper-spec-quick-add inline-flex items-center justify-center w-10 shrink-0 rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-300 transition"
+                                    data-spec-field="dimensions" title="Add to catalog">
+                                    <i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                            <input type="text" name="paper_size[]" class="paper-size-hidden w-full px-3 py-2 mt-2 border border-gray-300 rounded-lg text-sm" placeholder="Custom size e.g. 210x297">
+                        </div>
+                    </div>
+                    <div class="mt-4 paper-match-label"></div>
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Grammage (gsm)</label>
-                    <input type="number" name="paper_grammage[]"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="e.g. 80">
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Color</label>
-                    <input type="text" name="paper_color[]"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="e.g. Full Color, B&W">
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">No. of Sheets</label>
-                    <input type="number" name="paper_sheets[]"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg paper-sheets" placeholder="0">
-                    <p class="text-xs text-gray-400 mt-1">Include extras for damage</p>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Price / Sheet (MK)</label>
-                    <input type="number" step="0.01" name="paper_rate[]" value="25"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg paper-rate">
-                </div>
-                <div class="md:col-span-3">
-                    <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Total (MK)</label>
-                    <input type="number" step="0.01" name="paper_total[]" readonly
-                        class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg font-bold text-gray-700 paper-total">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1 border-t border-gray-100">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">No. of Sheets</label>
+                        <input type="number" name="paper_sheets[]"
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg paper-sheets focus:outline-none focus:border-green-500" placeholder="0">
+                        <p class="text-xs text-gray-400 mt-1">Include extras for damage</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Price / Sheet (MK)</label>
+                        <input type="number" step="0.01" name="paper_rate[]" value="0"
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg paper-rate focus:outline-none focus:border-green-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Line Total (MK)</label>
+                        <input type="text" name="paper_total[]" readonly
+                            class="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg font-bold text-gray-800 paper-total">
+                    </div>
                 </div>
             </div>
         </div>`;
-        console.log('Adding paper entry:', paperType);
         $('#paper-entries').append(html);
+        const entry = $('#paper-entries .paper-entry').last();
+        materialFetchDistinct('stock_type', { category: 'Printing Papers' }).done(function (resp) {
+            populateSelectOptions(entry.find('.paper-stock-type'), resp.values || [], 'Select stock type…');
+        });
         refreshLucide();
     }
 
     $(document).on('click', '#add-paper-btn', function () {
-        console.log('Add Paper Button clicked');
         addPaperEntry('', false);
+    });
+
+    $(document).on('click', '.paper-spec-quick-add, .paper-row-quick-add', function () {
+        const entry = $(this).closest('.paper-entry');
+        const field = $(this).data('spec-field') || 'stock_type';
+        if (typeof window.openPaperQuickAddModal === 'function') {
+            window.openPaperQuickAddModal(entry, field);
+        }
+    });
+
+    $(document).on('input', '#paper_add_stock_type, #paper_add_color, #paper_add_grammage, #paper_add_dimensions', updatePaperAddNamePreview);
+
+    $('#paperAddForm').submit(function (e) {
+        e.preventDefault();
+        updatePaperAddNamePreview();
+        $.ajax({
+            url: materialSaveUrl,
+            method: 'POST',
+            data: $(this).serialize(),
+            dataType: 'json',
+            loaderMessage: 'Saving catalog paper…',
+            success: function (response) {
+                if (response.status !== 'success') {
+                    alert('Error: ' + (response.message || 'Could not save paper'));
+                    return;
+                }
+                refreshAllPaperStockTypeOptions().always(function () {
+                    const entry = paperQuickAddTargetEntry && paperQuickAddTargetEntry.length
+                        ? paperQuickAddTargetEntry
+                        : $('.paper-entry').first();
+                    applyPaperMaterialToEntry(entry, response);
+                    updateDraftStatus('Paper saved to catalog and applied', 'ok');
+                    if (typeof window.closePaperQuickAddModal === 'function') {
+                        window.closePaperQuickAddModal();
+                    }
+                    $('#paperAddForm')[0].reset();
+                    updatePaperAddNamePreview();
+                });
+            },
+            error: function () {
+                alert('Connection error. Please try again.');
+            }
+        });
+    });
+
+    $(document).on('change', '.paper-stock-type', function () {
+        const entry = $(this).closest('.paper-entry');
+        entry.find('.paper-stock-type-hidden').val($(this).val() || '');
+        refreshPaperSpecSelects(entry, 'stock_type');
+    });
+    $(document).on('change', '.paper-color-select', function () {
+        const entry = $(this).closest('.paper-entry');
+        entry.find('.paper-color-hidden').val($(this).val() || '');
+        refreshPaperSpecSelects(entry, 'color');
+    });
+    $(document).on('change', '.paper-grammage-select', function () {
+        const entry = $(this).closest('.paper-entry');
+        entry.find('.paper-grammage-hidden').val($(this).val() || '');
+        refreshPaperSpecSelects(entry, 'grammage');
+    });
+    $(document).on('change', '.paper-dimensions-select, .paper-size-hidden', function () {
+        const entry = $(this).closest('.paper-entry');
+        const dim = entry.find('.paper-dimensions-select').val() || entry.find('.paper-size-hidden').val();
+        if (entry.find('.paper-dimensions-select').val()) {
+            entry.find('.paper-size-hidden').val(entry.find('.paper-dimensions-select').val());
+        }
+        if (dim) {
+            resolvePaperEntry(entry);
+        }
+    });
+
+    $(document).on('change', '.std-mat-dimensions', function () {
+        resolveStdMaterialCard($(this).closest('.std-material-card'));
     });
 
     $(document).on('click', '.remove-paper-btn', function () {
@@ -1599,12 +2397,7 @@ $(document).ready(function () {
     });
 
     $(document).on('input', '.paper-sheets, .paper-rate', function () {
-        const entry = $(this).closest('.paper-entry');
-        const sheets = parseFloat(entry.find('.paper-sheets').val()) || 0;
-        const rate = parseFloat(entry.find('.paper-rate').val()) || 0;
-        entry.find('.paper-total').val((sheets * rate).toFixed(2));
-        updatePaperTotal();
-        calculateTotals();
+        updatePaperEntryTotal($(this).closest('.paper-entry'));
     });
 
     // Updates #cost_paper without calling calculateTotals (avoids recursion)
@@ -1703,40 +2496,63 @@ $(document).ready(function () {
     function refreshInkCosts(triggerTotals) {
         const mode = getInkCalcMode();
         const formulaKgs = computeFormulaInkKgs();
+        const savedFormulaKgs = parseFloat($('#ink_kgs').val()) || 0;
+        const effectiveFormulaKgs = formulaKgs > 0 ? formulaKgs : savedFormulaKgs;
 
         if (mode !== INK_MODE_BREAKDOWN) {
-            $('#ink_kgs').val(formulaKgs.toFixed(4));
+            $('#ink_kgs').val((effectiveFormulaKgs > 0 ? effectiveFormulaKgs : 0).toFixed(4));
         }
 
         let totalCost = 0;
 
         if (mode === INK_MODE_FORMULA) {
             const rate = parseFloat($('#ink_overall_rate').val()) || 0;
-            totalCost = formulaKgs * rate;
+            totalCost = effectiveFormulaKgs * rate;
             $('#ink-colour-warning').addClass('hidden');
         } else {
             $('.ink-colour-row').each(function () {
                 const row = $(this);
                 const rate = parseFloat(row.find('.ink-colour-rate').val()) || 0;
                 let kgs = parseFloat(row.find('.ink-colour-kgs').val()) || 0;
+                const pct = parseFloat(row.find('.ink-colour-pct').val()) || 0;
+                const savedRowTotal = parseInkMoney(row.find('.ink-colour-total').val());
 
                 if (mode === INK_MODE_FORMULA_BREAKDOWN) {
-                    const pct = parseFloat(row.find('.ink-colour-pct').val()) || 0;
-                    kgs = formulaKgs * (pct / 100);
-                    row.find('.ink-colour-kgs').val(kgs > 0 ? kgs.toFixed(4) : '');
+                    if (pct > 0 && effectiveFormulaKgs > 0) {
+                        kgs = effectiveFormulaKgs * (pct / 100);
+                        row.find('.ink-colour-kgs').val(kgs > 0 ? kgs.toFixed(4) : '');
+                    } else if (kgs > 0 && pct <= 0 && effectiveFormulaKgs > 0) {
+                        row.find('.ink-colour-pct').val((kgs / effectiveFormulaKgs * 100).toFixed(2));
+                    } else if (kgs <= 0 && savedRowTotal > 0 && rate > 0) {
+                        kgs = savedRowTotal / rate;
+                        row.find('.ink-colour-kgs').val(kgs > 0 ? kgs.toFixed(4) : '');
+                        if (effectiveFormulaKgs > 0) {
+                            row.find('.ink-colour-pct').val((kgs / effectiveFormulaKgs * 100).toFixed(2));
+                        }
+                    }
                 }
 
-                const rowTotal = kgs * rate;
+                let rowTotal = kgs * rate;
+                if (rowTotal <= 0 && savedRowTotal > 0) {
+                    rowTotal = savedRowTotal;
+                }
                 row.find('.ink-colour-total').val(formatCurrency(rowTotal));
                 totalCost += rowTotal;
             });
             validateInkColours();
         }
 
+        if (totalCost <= 0) {
+            const savedSectionTotal = parseInkMoney($('#cost_ink').val());
+            if (savedSectionTotal > 0) {
+                totalCost = savedSectionTotal;
+            }
+        }
+
         $('#cost_ink').val(formatCurrency(totalCost));
 
         if (triggerTotals !== false) {
-            calculateTotals();
+            calculateTotals({ skipInkRefresh: true });
         }
     }
 
@@ -1771,6 +2587,7 @@ $(document).ready(function () {
             <td class="px-3 py-2">
                 <input type="text" name="ink_colour[]" value="${colourName}"
                     class="w-full border-gray-300 rounded-lg ink-colour-name" placeholder="e.g. C, M, Y, K">
+                <input type="hidden" name="ink_material_id[]" class="ink-material-id" value="">
             </td>
             <td class="px-3 py-2 ink-colour-pct-cell ${pctHidden}">
                 <input type="number" step="0.01" min="0" name="ink_colour_pct[]" value="${pctVal}"
@@ -1781,7 +2598,7 @@ $(document).ready(function () {
                     class="w-full border-gray-300 rounded-lg ink-colour-kgs ${kgsBg}" placeholder="0.0000">
             </td>
             <td class="px-3 py-2">
-                <input type="number" step="0.01" name="ink_colour_rate[]" value="15000"
+                <input type="number" step="0.01" name="ink_colour_rate[]" value="0"
                     class="w-full border-gray-300 rounded-lg ink-colour-rate" placeholder="0.00">
             </td>
             <td class="px-3 py-2">
@@ -1795,8 +2612,30 @@ $(document).ready(function () {
             </td>
         </tr>`;
         $('#ink-colour-rows').append(html);
+        const row = $('#ink-colour-rows .ink-colour-row').last();
+        if (colourName) {
+            lookupInkRateForColour(colourName, function (match) {
+                if (match) {
+                    row.find('.ink-material-id').val(match.id);
+                    row.find('.ink-colour-rate').val(match.rate || 0);
+                    refreshInkCosts(true);
+                }
+            });
+        }
         refreshLucide();
     }
+
+    $(document).on('change blur', '.ink-colour-name', function () {
+        const row = $(this).closest('.ink-colour-row');
+        const colourName = row.find('.ink-colour-name').val();
+        lookupInkRateForColour(colourName, function (match) {
+            if (match) {
+                row.find('.ink-material-id').val(match.id);
+                row.find('.ink-colour-rate').val(match.rate || 0);
+                refreshInkCosts(true);
+            }
+        });
+    });
 
     $(document).on('click', '#add-ink-colour-btn', function () { addInkColourRow(''); });
 
@@ -1837,6 +2676,13 @@ $(document).ready(function () {
     // =====================
     $(document).on('click', '#add-binding-row', function () { addBindingRow(); });
 
+    $(document).on('click', '.binding-quick-add', function () {
+        bindingQuickAddTargetRow = $(this).closest('.binding-row');
+        if (typeof window.openBindingAddModal === 'function') {
+            window.openBindingAddModal();
+        }
+    });
+
     function bindingMaterialOptionLabel(name, unit) {
         return unit ? name + ' (' + unit + ')' : name;
     }
@@ -1858,9 +2704,11 @@ $(document).ready(function () {
     }
 
     function selectBindingMaterialInForm(materialId, rate, unit) {
-        let row = $('#binding-rows .binding-row').filter(function () {
-            return !$(this).find('.binding-mat-select').val();
-        }).first();
+        let row = bindingQuickAddTargetRow && bindingQuickAddTargetRow.length
+            ? bindingQuickAddTargetRow
+            : $('#binding-rows .binding-row').filter(function () {
+                return !$(this).find('.binding-mat-select').val();
+            }).first();
         if (!row.length) {
             addBindingRow();
             row = $('#binding-rows .binding-row').last();
@@ -1873,13 +2721,20 @@ $(document).ready(function () {
             row.find('.binding-mat-unit').val(unit);
         }
         calcBindingRow(row);
+        bindingQuickAddTargetRow = null;
     }
 
     function addBindingRow() {
         const tmpl = document.getElementById('binding-row-template');
         $('#binding-rows').append(tmpl.content.cloneNode(true));
+        const row = $('#binding-rows .binding-row').last();
+        initBindingFilterSelects(row);
         refreshLucide();
     }
+
+    $(document).on('change', '.binding-filter-stock, .binding-filter-color', function () {
+        applyBindingFilters($(this).closest('.binding-row'));
+    });
 
     $(document).on('click', '.remove-binding-row', function () {
         $(this).closest('tr').remove();
@@ -1915,6 +2770,33 @@ $(document).ready(function () {
         $('#cost_binding').val(formatCurrency(total));
         calculateTotals();
     }
+
+    $(document).on('click', '#add-consumable-row', function () { addConsumableRow(); });
+    $(document).on('click', '.remove-consumable-row', function () {
+        $(this).closest('.consumable-row').remove();
+        updateConsumablesTotal();
+    });
+    $(document).on('change', '.consumable-stock-type', function () {
+        refreshConsumableRowOptions($(this).closest('.consumable-row'));
+    });
+    $(document).on('change', '.consumable-mat-select', function () {
+        const row = $(this).closest('.consumable-row');
+        const opt = row.find('.consumable-mat-select option:selected');
+        row.find('.consumable-mat-rate').val(opt.data('rate') || 0);
+        row.find('.consumable-mat-unit').val(opt.data('unit') || '');
+        const qty = parseFloat(row.find('.consumable-mat-qty').val()) || 0;
+        row.find('.consumable-mat-total').val(formatCurrency(qty * (parseFloat(opt.data('rate')) || 0)));
+        updateConsumablesTotal();
+    });
+    $(document).on('input', '.consumable-mat-qty, .consumable-mat-rate, #cost_consumables_misc', function () {
+        const row = $(this).closest('.consumable-row');
+        if (row.length) {
+            const qty = parseFloat(row.find('.consumable-mat-qty').val()) || 0;
+            const rate = parseFloat(row.find('.consumable-mat-rate').val()) || 0;
+            row.find('.consumable-mat-total').val(formatCurrency(qty * rate));
+        }
+        updateConsumablesTotal();
+    });
 
     // =====================
     // PRE-PRESS LABOUR
@@ -2261,11 +3143,14 @@ $(document).ready(function () {
     // =====================
     $('.calc-final').on('input', calculateTotals);
 
-    function calculateTotals() {
+    function calculateTotals(opts) {
+        opts = opts || {};
         // Paper — read directly, don't call calcPaperTotals (avoids recursion)
         updatePaperTotal();
-        // Ink — always refresh cost_ink from formula and/or breakdown (no recursion)
-        refreshInkCosts(false);
+        // Ink — recompute section total unless caller just finished ink refresh
+        if (!opts.skipInkRefresh) {
+            refreshInkCosts(false);
+        }
 
         // Materials subtotal (standard cards only)
         let matSubtotal = 0;
@@ -2276,7 +3161,7 @@ $(document).ready(function () {
         const ink = parseInkMoney($('#cost_ink').val());
         const binding = parseInkMoney($('#cost_binding').val());
         const labour = parseInkMoney($('#cost_labour_total').val());
-        const consumables = parseFloat($('input[name="cost_consumables"]').val()) || 0;
+        const consumables = parseInkMoney($('#cost_consumables').val()) || parseFloat($('#cost_consumables_misc').val()) || 0;
         const extraLabour = parseFloat($('input[name="cost_labour"]').val()) || 0;
 
         const subtotal = matSubtotal + paper + ink + binding + labour + consumables;
@@ -2296,20 +3181,22 @@ $(document).ready(function () {
     $('#bindingAddForm').submit(function (e) {
         e.preventDefault();
         $.ajax({
-            url: '../materials/save',
+            url: materialSaveUrl,
             method: 'POST',
             data: $(this).serialize(),
             dataType: 'json',
-            loaderMessage: 'Saving material…',
+            loaderMessage: 'Saving binding material…',
             success: function (response) {
                 if (response.status === 'success') {
                     appendBindingMaterialOption(response.material_id, response.name, response.rate, response.unit);
                     selectBindingMaterialInForm(response.material_id, response.rate, response.unit);
-                    updateDraftStatus('Material saved and added to list', 'ok');
-                    closeBindingAddModal();
+                    updateDraftStatus('Binding material saved to catalog and applied', 'ok');
+                    if (typeof window.closeBindingAddModal === 'function') {
+                        window.closeBindingAddModal();
+                    }
                     $('#bindingAddForm')[0].reset();
                 } else {
-                    alert('Error: ' + response.message);
+                    alert('Error: ' + (response.message || 'Could not save material'));
                 }
             },
             error: function () { alert('Connection error. Please try again.'); }
@@ -2478,12 +3365,17 @@ $(document).ready(function () {
     });
 
     // Initialize after all helpers exist (avoids TDZ crashes that blank restore).
+    initStdMaterialCards();
+    initInkBrandFilter();
     initPaperEntries();
     initInkColourRows();
     initMachineRows();
 
     if ($('#binding-rows .binding-row').length === 0) {
         addBindingRow();
+    }
+    if ($('#consumable-rows .consumable-row').length === 0) {
+        addConsumableRow();
     }
     if ($('#prepress-rows .prepress-row').length === 0) {
         addPrepressRow();
@@ -2606,12 +3498,59 @@ $(document).ready(function () {
     }
 
     refreshLucide();
+
+    window.openPaperQuickAddModal = function (entry, focusField) {
+        paperQuickAddTargetEntry = entry && entry.length ? entry : $('.paper-entry').first();
+        const target = paperQuickAddTargetEntry;
+        $('#paper_add_stock_type').val(target.find('.paper-stock-type').val() || target.find('.paper-stock-type-hidden').val() || '');
+        $('#paper_add_color').val(target.find('.paper-color-select').val() || target.find('.paper-color-hidden').val() || '');
+        $('#paper_add_grammage').val(target.find('.paper-grammage-select').val() || target.find('.paper-grammage-hidden').val() || '');
+        $('#paper_add_dimensions').val(target.find('.paper-dimensions-select').val() || target.find('.paper-size-hidden').val() || '');
+        $('#paper_add_rate').val(target.find('.paper-rate').val() || '');
+        updatePaperAddNamePreview();
+        $('#paperAddModal').removeClass('hidden');
+        const focusMap = {
+            stock_type: '#paper_add_stock_type',
+            color: '#paper_add_color',
+            grammage: '#paper_add_grammage',
+            dimensions: '#paper_add_dimensions',
+        };
+        if (focusField && focusMap[focusField]) {
+            setTimeout(function () {
+                $(focusMap[focusField]).trigger('focus');
+            }, 50);
+        }
+        refreshLucide();
+    };
+
+    window.closePaperQuickAddModal = function () {
+        $('#paperAddModal').addClass('hidden');
+        paperQuickAddTargetEntry = null;
+    };
+
+    window.openBindingAddModal = function (resetTarget) {
+        if (resetTarget) {
+            bindingQuickAddTargetRow = null;
+        }
+        if (!bindingQuickAddTargetRow || !bindingQuickAddTargetRow.length) {
+            bindingQuickAddTargetRow = $('#binding-rows .binding-row').filter(function () {
+                return !$(this).find('.binding-mat-select').val();
+            }).first();
+            if (!bindingQuickAddTargetRow.length) {
+                bindingQuickAddTargetRow = $('#binding-rows .binding-row').last();
+            }
+        }
+        $('#bindingAddModal').removeClass('hidden');
+        refreshLucide();
+    };
+
+    window.closeBindingAddModal = function () {
+        $('#bindingAddModal').addClass('hidden');
+        bindingQuickAddTargetRow = null;
+    };
 });
 
 // Global modal functions
-function openBindingAddModal() { $('#bindingAddModal').removeClass('hidden'); }
-function closeBindingAddModal() { $('#bindingAddModal').addClass('hidden'); }
-
 function configureLabourAddModal(section) {
     section = section || 'prepress';
     $('#labour_add_section').val(section);

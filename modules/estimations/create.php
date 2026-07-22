@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
 require_once __DIR__ . '/../../libs/ProductionLabourMigrator.php';
+require_once __DIR__ . '/../../includes/material_match_helper.php';
 permissions_require_one_of(['manage_estimations']);
 EstimationAuditMigrator::ensure($pdo);
 ProductionLabourMigrator::ensure($pdo);
@@ -28,6 +29,13 @@ $binding_materials = array_filter($all_materials, fn($m) => strtolower($m['categ
 $binding_cat_id = null;
 $catStmt = $pdo->query("SELECT id FROM material_categories WHERE name='Binding Materials' LIMIT 1");
 $binding_cat_id = $catStmt->fetchColumn();
+
+$paper_cat_id = null;
+$paperCatStmt = $pdo->query("SELECT id FROM material_categories WHERE name='Printing Papers' LIMIT 1");
+$paper_cat_id = $paperCatStmt->fetchColumn();
+
+$consumable_materials = array_filter($all_materials, fn($m) => strtolower($m['category_name'] ?? '') === 'printing consumables');
+$ink_materials = array_filter($all_materials, fn($m) => strtolower($m['category_name'] ?? '') === 'printing inks');
 
 $all_labour_tasks = ProductionLabourMigrator::fetchTasks($pdo);
 $prepress_labour_tasks = array_values(array_filter($all_labour_tasks, fn($t) => ($t['section'] ?? '') === 'prepress'));
@@ -160,9 +168,12 @@ include '../../includes/header.php';
         endpoints: {
             saveDraft: 'save_draft',
             discardDraft: 'discard_draft',
+            materialSearch: <?php echo json_encode(BASE_URL . 'modules/materials/search.php'); ?>,
+            materialSave: <?php echo json_encode(BASE_URL . 'modules/materials/save.php'); ?>,
             sessionPing: <?php echo json_encode(BASE_URL . 'modules/auth/session_ping'); ?>,
             reauth: <?php echo json_encode(BASE_URL . 'modules/auth/reauth'); ?>
-        }
+        },
+        stdMaterialSlots: <?php echo json_encode(ESTIMATION_STD_MATERIAL_SLOTS); ?>
     };
 </script>
 <script src="../../assets/js/form-draft-store.js?v=<?php echo filemtime(__DIR__ . '/../../assets/js/form-draft-store.js'); ?>"></script>

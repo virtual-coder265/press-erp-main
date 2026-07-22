@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/permissions_helper.php';
 require_once __DIR__ . '/../../libs/EstimationAuditMigrator.php';
 require_once __DIR__ . '/../../includes/estimation_draft_version_helper.php';
+require_once __DIR__ . '/../../includes/estimation_access_helper.php';
 permissions_require_one_of(['manage_estimations']);
 
 EstimationAuditMigrator::ensure($pdo);
@@ -41,8 +42,14 @@ try {
     $current_step = isset($_POST['current_step']) ? (int) $_POST['current_step'] : 1;
     $save_action = strtolower(trim((string) ($_POST['action'] ?? 'autosave')));
     $base_revision = isset($_POST['base_revision']) ? (int) $_POST['base_revision'] : 0;
+    $checkpoint_step = isset($_POST['checkpoint_step']) ? (int) $_POST['checkpoint_step'] : 0;
     $is_override = ($save_action === 'override');
     $is_clone = ($save_action === 'clone');
+    $is_step_checkpoint = ($save_action === 'step_checkpoint');
+
+    if ($is_step_checkpoint && ($checkpoint_step < 1 || $checkpoint_step > ESTIMATION_DRAFT_STEP_COUNT)) {
+        $checkpoint_step = $current_step;
+    }
 
     $draft_origin = 'autosave';
     if ($save_action === 'manual') {
@@ -60,7 +67,8 @@ try {
         $form_data['save_draft'],
         $form_data['action'],
         $form_data['base_revision'],
-        $form_data['content_hash']
+        $form_data['content_hash'],
+        $form_data['checkpoint_step']
     );
 
     $draft_json = json_encode($form_data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -107,6 +115,17 @@ try {
             throw new RuntimeException('Failed to create draft');
         }
 
+        if ($is_step_checkpoint && $checkpoint_step >= 1) {
+            estimation_draft_store_step_checkpoint(
+                $pdo,
+                $est_id,
+                $checkpoint_step,
+                $draft_json,
+                $content_hash,
+                $user_id
+            );
+        }
+
         $pdo->commit();
 
         echo json_encode([
@@ -123,15 +142,12 @@ try {
         exit;
     }
 
-    $existingStmt = $pdo->prepare("
-        SELECT id, estimation_number, draft_data, draft_step, draft_origin, draft_revision, draft_content_hash, last_auto_saved, status
-        FROM estimations
-        WHERE id = :id AND created_by = :user
-        LIMIT 1
-        FOR UPDATE
-    ");
-    $existingStmt->execute(['id' => $est_id, 'user' => $user_id]);
-    $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+    $existing = estimation_fetch_draft_row(
+        $pdo,
+        (int) $est_id,
+        'id, estimation_number, draft_data, draft_step, draft_origin, draft_revision, draft_content_hash, last_auto_saved, status',
+        true
+    );
 
     if (!$existing || strtolower((string) ($existing['status'] ?? '')) !== 'draft') {
         $pdo->rollBack();
@@ -149,8 +165,12 @@ try {
         $storedHash = estimation_draft_content_hash($existing['draft_data']);
     }
 
-    // Identical content: acknowledge without bumping revision or timestamp.
-    if ($storedHash && hash_equals((string) $storedHash, $content_hash)) {
+    // Identical content: skip draft row update unless saving a step checkpoint.
+    if (
+        !$is_step_checkpoint
+        && $storedHash
+        && hash_equals((string) $storedHash, $content_hash)
+    ) {
         $pdo->commit();
         echo json_encode([
             'success' => true,
@@ -166,8 +186,8 @@ try {
         exit;
     }
 
-    // Conflict: another device advanced the revision.
-    if (!$is_override && $base_revision !== $storedRevision) {
+    // Conflict: another device advanced the revision (not for step checkpoints — they force-sync).
+    if (!$is_override && !$is_step_checkpoint && $base_revision !== $storedRevision) {
         $pdo->rollBack();
         $serverDraft = [];
         if (!empty($existing['draft_data'])) {
@@ -203,19 +223,35 @@ try {
         $newRevision = 1;
     }
 
-    // Archive current snapshot before overwrite (revision history).
-    if (!empty($existing['draft_data'])) {
-        estimation_draft_store_version(
+    // Step checkpoints are stored separately (one per wizard step). Autosaves only update live draft_data.
+    if ($is_step_checkpoint && $storedHash && hash_equals((string) $storedHash, $content_hash)) {
+        estimation_draft_store_step_checkpoint(
             $pdo,
-            $est_id,
-            $storedRevision > 0 ? $storedRevision : 1,
-            (string) $existing['draft_data'],
-            (int) ($existing['draft_step'] ?? 1),
-            $storedHash,
+            (int) $est_id,
+            $checkpoint_step,
+            $draft_json,
+            $content_hash,
             $user_id
         );
+
+        $pdo->commit();
+
+        echo json_encode([
+            'success' => true,
+            'est_id' => $est_id,
+            'estimation_number' => $existing['estimation_number'] ?? null,
+            'message' => 'Step checkpoint saved',
+            'timestamp' => estimation_draft_utc_now(),
+            'draft_origin' => $existing['draft_origin'] ?: $draft_origin,
+            'draft_revision' => $storedRevision > 0 ? $storedRevision : 1,
+            'draft_content_hash' => $content_hash,
+            'checkpoint_step' => $checkpoint_step,
+            'noop' => false,
+        ]);
+        exit;
     }
 
+    $ownerScope = estimation_owner_scope('created_by', 'user');
     $stmt = $pdo->prepare("
         UPDATE estimations
         SET draft_data = :draft,
@@ -228,12 +264,11 @@ try {
             draft_origin = :origin,
             draft_revision = :revision,
             draft_content_hash = :hash
-        WHERE id = :id AND created_by = :user AND status = 'Draft'
+        WHERE id = :id AND status = 'Draft'{$ownerScope['sql']}
     ");
 
-    $stmt->execute([
+    $stmt->execute(array_merge([
         'id' => $est_id,
-        'user' => $user_id,
         'draft' => $draft_json,
         'step' => $current_step,
         'name' => $customer_name,
@@ -243,7 +278,7 @@ try {
         'origin' => $resolvedOrigin,
         'revision' => $newRevision,
         'hash' => $content_hash,
-    ]);
+    ], $ownerScope['params']));
 
     if ($stmt->rowCount() < 1) {
         $pdo->rollBack();
@@ -255,17 +290,29 @@ try {
         exit;
     }
 
+    if ($is_step_checkpoint && $checkpoint_step >= 1) {
+        estimation_draft_store_step_checkpoint(
+            $pdo,
+            (int) $est_id,
+            $checkpoint_step,
+            $draft_json,
+            $content_hash,
+            $user_id
+        );
+    }
+
     $pdo->commit();
 
     echo json_encode([
         'success' => true,
         'est_id' => $est_id,
         'estimation_number' => $existing['estimation_number'] ?? null,
-        'message' => 'Draft saved successfully',
+        'message' => $is_step_checkpoint ? 'Step checkpoint saved' : 'Draft saved successfully',
         'timestamp' => estimation_draft_utc_now(),
         'draft_origin' => $resolvedOrigin,
         'draft_revision' => $newRevision,
         'draft_content_hash' => $content_hash,
+        'checkpoint_step' => $is_step_checkpoint ? $checkpoint_step : null,
         'noop' => false,
     ]);
 } catch (Exception $e) {

@@ -1,9 +1,9 @@
 <!-- Draft version restore confirmation -->
 <div id="draftVersionRestoreModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-[60]" role="dialog" aria-modal="true" aria-labelledby="draftVersionRestoreTitle">
     <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4">
-        <h3 id="draftVersionRestoreTitle" class="text-xl font-bold text-gray-800 mb-2">Restore this version?</h3>
+        <h3 id="draftVersionRestoreTitle" class="text-xl font-bold text-gray-800 mb-2">Restore this step checkpoint?</h3>
         <p id="draftVersionRestoreMessage" class="text-sm text-gray-600 mb-6">
-            Replace the current form with the selected version. Unsaved changes will be lost.
+            Replace the current form with the saved checkpoint for this wizard step. Unsaved changes will be lost.
         </p>
         <div class="flex gap-3">
             <button type="button" id="draftVersionRestoreCancel"
@@ -12,7 +12,7 @@
             </button>
             <button type="button" id="draftVersionRestoreConfirm"
                 class="flex-1 bg-amber-600 text-white font-bold py-2 rounded-lg hover:bg-amber-700">
-                Restore version
+                Restore checkpoint
             </button>
         </div>
     </div>
@@ -52,27 +52,97 @@
     </div>
 </div>
 
+<!-- Quick Add Paper Material Modal -->
+<div id="paperAddModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h3 class="text-2xl font-bold text-gray-800">New Catalog Paper</h3>
+                <p class="text-sm text-gray-500 mt-1">Saved to Printing Papers and applied to the current row.</p>
+            </div>
+            <button type="button" onclick="closePaperQuickAddModal()" class="text-gray-400 hover:text-gray-600">
+                <i data-lucide="x" class="h-6 w-6" aria-hidden="true"></i>
+            </button>
+        </div>
+        <form id="paperAddForm">
+            <input type="hidden" name="action" value="quick_add">
+            <input type="hidden" name="category_id" value="<?php echo (int) ($paper_cat_id ?? 0); ?>">
+            <input type="hidden" name="material_kind" value="paper">
+            <input type="hidden" name="unit" value="Sheets">
+            <input type="hidden" name="name" id="paper_add_generated_name" value="">
+            <div class="space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Stock Type *</label>
+                        <input type="text" name="stock_type" id="paper_add_stock_type" required
+                            placeholder="e.g. Manilla, Bond Paper"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Colour</label>
+                        <input type="text" name="color" id="paper_add_color"
+                            placeholder="e.g. Pink, Blue, White"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Grammage (gsm) *</label>
+                        <input type="number" step="0.01" name="grammage" id="paper_add_grammage" required
+                            placeholder="e.g. 160"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Size (optional)</label>
+                        <input type="text" name="dimensions" id="paper_add_dimensions"
+                            placeholder="e.g. A4, 210x297"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Rate per Sheet (MK) *</label>
+                    <input type="number" step="0.01" name="rate" id="paper_add_rate" required
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
+                </div>
+                <div class="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
+                    <p class="text-xs font-semibold text-gray-500 uppercase mb-1">Catalog name preview</p>
+                    <p id="paper_add_name_preview" class="text-sm text-gray-800 font-medium">—</p>
+                </div>
+                <div class="pt-2">
+                    <button type="submit"
+                        class="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition shadow-lg flex items-center justify-center gap-2">
+                        <i data-lucide="plus" class="h-5 w-5" aria-hidden="true"></i>
+                        Save &amp; Use in Estimation
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Quick Add Binding Material Modal -->
 <div id="bindingAddModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
-    <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
+    <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md mx-4">
         <div class="flex justify-between items-center mb-6">
-            <h3 class="text-2xl font-bold text-gray-800">New Binding Material</h3>
-            <button onclick="closeBindingAddModal()" class="text-gray-400 hover:text-gray-600">
+            <div>
+                <h3 class="text-2xl font-bold text-gray-800">Add to Catalog</h3>
+                <p class="text-sm text-gray-500 mt-1">New binding material — saved and applied to the current row.</p>
+            </div>
+            <button type="button" onclick="closeBindingAddModal()" class="text-gray-400 hover:text-gray-600">
                 <i data-lucide="x" class="h-6 w-6" aria-hidden="true"></i>
             </button>
         </div>
         <form id="bindingAddForm">
             <input type="hidden" name="action" value="quick_add">
             <input type="hidden" name="category_id" value="<?php echo $binding_cat_id; ?>">
+            <input type="hidden" name="material_kind" value="binding">
             <div class="space-y-4">
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Material Name *</label>
-                    <input type="text" name="name" required
+                    <input type="text" name="name" required placeholder="e.g. Green Book Cloth"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
                 </div>
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Unit *</label>
-                    <input type="text" name="unit" required placeholder="e.g., roll, piece"
+                    <input type="text" name="unit" required placeholder="e.g. roll, metre, kg"
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
                 </div>
                 <div>
@@ -80,10 +150,11 @@
                     <input type="number" step="0.01" name="rate" required
                         class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
                 </div>
-                <div class="pt-4">
+                <div class="pt-2">
                     <button type="submit"
-                        class="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition shadow-lg">
-                        Save &amp; Add to Binding List
+                        class="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition shadow-lg flex items-center justify-center gap-2">
+                        <i data-lucide="plus" class="h-5 w-5" aria-hidden="true"></i>
+                        Save &amp; Use in Estimation
                     </button>
                 </div>
             </div>

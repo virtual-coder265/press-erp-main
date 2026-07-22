@@ -409,7 +409,7 @@ $estimations = $stmt->fetchAll();
             <div>
                 <h3 class="text-lg font-bold text-gray-900">Draft version history</h3>
                 <p class="text-sm text-gray-600 mt-1">
-                    <span id="draftHistoryModalLabel">Draft</span> — up to 4 recent saves
+                    <span id="draftHistoryModalLabel">Draft</span> — one checkpoint per wizard step (8 steps)
                 </p>
             </div>
             <button type="button" onclick="closeDraftHistoryModal()" class="text-gray-400 hover:text-gray-600">
@@ -507,30 +507,35 @@ $estimations = $stmt->fetchAll();
                     return;
                 }
                 listEl.innerHTML = versions.map(function (item) {
-                    const label = item.is_current ? 'Current' : (item.label || ('rev ' + item.revision));
-                    const time = formatListDraftTime(item.saved_at);
+                    const label = item.label || ('Step ' + (item.draft_step || 1));
+                    const time = item.saved_at ? formatListDraftTime(item.saved_at) : 'Not saved yet';
                     const step = item.draft_step || 1;
-                    let action = item.is_current
-                        ? '<span class="text-xs text-gray-400">Active</span>'
-                        : '<button type="button" class="text-xs font-semibold text-amber-700 hover:text-amber-900" data-revision="' + item.revision + '">Restore &amp; open</button>';
+                    let action;
+                    if (item.is_current) {
+                        action = '<span class="text-xs text-gray-400">Active</span>';
+                    } else if (item.has_checkpoint) {
+                        action = '<button type="button" class="text-xs font-semibold text-amber-700 hover:text-amber-900" data-step="' + step + '">Restore &amp; open</button>';
+                    } else {
+                        action = '<span class="text-xs text-gray-400">No checkpoint</span>';
+                    }
                     return '<div class="flex items-center justify-between gap-3 px-4 py-3">' +
                         '<div><p class="text-sm font-semibold text-gray-800">' + label + '</p>' +
-                        '<p class="text-xs text-gray-500">' + time + ' · Step ' + step + '</p></div>' +
+                        '<p class="text-xs text-gray-500">' + time + '</p></div>' +
                         action + '</div>';
                 }).join('');
 
-                listEl.querySelectorAll('button[data-revision]').forEach(function (btn) {
+                listEl.querySelectorAll('button[data-step]').forEach(function (btn) {
                     btn.addEventListener('click', function () {
-                        const revision = btn.getAttribute('data-revision');
-                        if (!revision || !draftHistoryTargetId) return;
-                        if (!confirm('Restore this version and open the draft editor? Current unsaved work in the editor will be replaced.')) {
+                        const step = btn.getAttribute('data-step');
+                        if (!step || !draftHistoryTargetId) return;
+                        if (!confirm('Restore the checkpoint for this step and open the draft editor? Current unsaved work in the editor will be replaced.')) {
                             return;
                         }
                         btn.disabled = true;
                         const body = new URLSearchParams();
                         body.append('action', 'restore');
                         body.append('est_id', String(draftHistoryTargetId));
-                        body.append('revision', revision);
+                        body.append('step', step);
                         fetch('draft_versions', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
